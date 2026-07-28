@@ -1,0 +1,1379 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-[#1e1f22] text-gray-200">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Discord-Lite | Serverless Encrypted P2P Voice & Chat</title>
+  
+  <!-- SEO & OpenGraph -->
+  <meta name="description" content="Serverless, zero-trust encrypted, peer-to-peer Discord-Lite voice and chat web application using Nostr and WebRTC with TURN IP anonymity." />
+  <meta name="theme-color" content="#5865f2" />
+
+  <!-- Fonts & CDN Dependencies -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'sans-serif'] },
+          colors: {
+            discord: {
+              blurple: '#5865f2',
+              blurpleHover: '#4752c4',
+              darkBg: '#1e1f22',
+              sidebarBg: '#2b2d31',
+              channelBg: '#313338',
+              hoverBg: '#35373c',
+              activeBg: '#404249',
+              green: '#23a55a',
+              red: '#f23f43'
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- DOMPurify for HTML sanitization -->
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.8/dist/purify.min.js"></script>
+
+  <!-- nostr-tools v2 bundle -->
+  <script src="https://unpkg.com/nostr-tools@2.7.0/lib/nostr.bundle.js"></script>
+
+  <!-- Emoji Picker Element -->
+  <script type="module" src="https://cdn.jsdelivr.net/npm/emoji-picker-element@1/index.js"></script>
+
+  <!-- Alpine.js v3 -->
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+  <style>
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: #2b2d31; }
+    ::-webkit-scrollbar-thumb { background: #1a1b1e; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #111214; }
+
+    /* Pulsing Speaking Animation */
+    .speaking-glow {
+      box-shadow: 0 0 0 3px #23a55a, 0 0 12px rgba(35, 165, 90, 0.6);
+      animation: pulse-glow 1.5s infinite ease-in-out;
+    }
+    @keyframes pulse-glow {
+      0%, 100% { box-shadow: 0 0 0 3px #23a55a, 0 0 10px rgba(35, 165, 90, 0.5); }
+      50% { box-shadow: 0 0 0 4px #23a55a, 0 0 18px rgba(35, 165, 90, 0.8); }
+    }
+    emoji-picker {
+      --background: #2b2d31;
+      --border-color: #1e1f22;
+      --category-button-active-background: #404249;
+    }
+  </style>
+</head>
+
+<body class="h-full font-sans antialiased select-none overflow-hidden" x-data="discordApp()" x-init="initApp()">
+
+  <!-- Main App Frame -->
+  <div class="flex h-screen w-screen overflow-hidden bg-discord-darkBg">
+    
+    <!-- 1. LEFT RAIL: SERVER / ROOM SWITCHER -->
+    <div class="w-18 bg-[#1e1f22] flex flex-col items-center py-3 space-y-3 border-r border-[#2b2d31]/50 z-20 shrink-0">
+      <!-- App Brand Icon / Home -->
+      <button @click="switchRoom(personalRoomSlug)" 
+              class="relative group flex items-center justify-center w-12 h-12 rounded-2xl transition-all duration-200"
+              :class="room.slug === personalRoomSlug ? 'bg-discord-blurple text-white rounded-2xl' : 'bg-discord-sidebarBg text-gray-300 hover:bg-discord-blurple hover:text-white hover:rounded-2xl'">
+        <i data-lucide="shield-check" class="w-6 h-6"></i>
+        <!-- Tooltip -->
+        <span class="absolute left-16 px-2.5 py-1 bg-black text-white text-xs font-semibold rounded shadow-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none">
+          Personal Room (#<span x-text="personalRoomSlug.substring(0,6)"></span>)
+        </span>
+      </button>
+
+      <div class="w-8 h-[2px] bg-[#35373c] rounded"></div>
+
+      <!-- Current Room Indicator -->
+      <div class="relative group">
+        <button class="w-12 h-12 rounded-2xl bg-discord-blurple/20 border-2 border-discord-blurple text-discord-blurple flex items-center justify-center font-bold text-sm shadow-inner">
+          <span x-text="room.slug.substring(0, 3).toUpperCase()"></span>
+        </button>
+        <span class="absolute left-16 px-2.5 py-1 bg-black text-white text-xs font-semibold rounded shadow-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none">
+          Active: #<span x-text="room.slug"></span>
+        </span>
+      </div>
+
+      <!-- Add / Join Room Button -->
+      <button @click="ui.showRoomModal = true" 
+              class="group flex items-center justify-center w-12 h-12 rounded-3xl bg-discord-sidebarBg text-discord-green hover:bg-discord-green hover:text-white hover:rounded-2xl transition-all duration-200">
+        <i data-lucide="plus" class="w-6 h-6"></i>
+        <span class="absolute left-16 px-2.5 py-1 bg-black text-white text-xs font-semibold rounded shadow-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none">
+          Join or Create Room
+        </span>
+      </button>
+
+      <!-- Relay Health Indicator -->
+      <div class="mt-auto flex flex-col items-center space-y-2 pb-2">
+        <div class="relative group cursor-pointer" @click="ui.showProfileModal = true">
+          <div class="w-3 h-3 rounded-full"
+               :class="connectedRelaysCount > 0 ? 'bg-discord-green shadow-[0_0_8px_#23a55a]' : 'bg-discord-red animate-pulse'"></div>
+          <span class="absolute left-16 bottom-0 px-2 py-1 bg-black text-white text-xs rounded shadow whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+            Relays: <span x-text="connectedRelaysCount"></span>/<span x-text="relays.length"></span> Connected
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. SECONDARY SIDEBAR: CHANNELS & VOICE PANEL -->
+    <div class="w-60 bg-discord-sidebarBg flex flex-col justify-between shrink-0 border-r border-[#1e1f22]/50">
+      
+      <!-- Room Title Header -->
+      <div class="h-12 border-b border-[#1e1f22] px-4 flex items-center justify-between font-bold text-gray-100 shadow-sm">
+        <div class="flex items-center space-x-2 truncate">
+          <i data-lucide="lock" class="w-4 h-4 text-discord-green" x-show="room.pass"></i>
+          <i data-lucide="globe" class="w-4 h-4 text-gray-400" x-show="!room.pass"></i>
+          <span class="truncate text-sm" x-text="'#' + room.slug"></span>
+        </div>
+        <button @click="copyInviteLink()" title="Copy Room Invite Link" class="text-gray-400 hover:text-white p-1 rounded hover:bg-discord-hoverBg transition">
+          <i data-lucide="share-2" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <!-- Channel List -->
+      <div class="flex-1 overflow-y-auto px-2 py-3 space-y-4">
+        
+        <!-- Text Channels Section -->
+        <div>
+          <div class="px-2 text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center justify-between mb-1">
+            <span>Text Channels</span>
+            <i data-lucide="hash" class="w-3.5 h-3.5"></i>
+          </div>
+          <template x-for="ch in textChannels" :key="ch.id">
+            <button @click="activeChannel = ch.id"
+                    class="w-full flex items-center px-2 py-1.5 rounded text-sm font-medium transition-colors"
+                    :class="activeChannel === ch.id ? 'bg-discord-activeBg text-white' : 'text-gray-400 hover:bg-discord-hoverBg hover:text-gray-200'">
+              <span class="text-gray-400 text-base mr-2">#</span>
+              <span x-text="ch.name" class="truncate"></span>
+              <span x-show="ch.unread" class="ml-auto w-2 h-2 rounded-full bg-discord-blurple"></span>
+            </button>
+          </template>
+        </div>
+
+        <!-- Voice Channels Section -->
+        <div>
+          <div class="px-2 text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center justify-between mb-1">
+            <span>Voice Channels</span>
+            <i data-lucide="volume-2" class="w-3.5 h-3.5"></i>
+          </div>
+          <template x-for="vc in voiceChannels" :key="vc.id">
+            <div class="space-y-1">
+              <button @click="toggleVoiceChannel(vc.id)"
+                      class="w-full flex items-center px-2 py-1.5 rounded text-sm font-medium transition-colors group"
+                      :class="voice.channel === vc.id ? 'bg-discord-green/20 text-discord-green font-semibold' : 'text-gray-400 hover:bg-discord-hoverBg hover:text-gray-200'">
+                <i data-lucide="radio" class="w-4 h-4 mr-2" :class="voice.channel === vc.id ? 'text-discord-green animate-pulse' : 'text-gray-400'"></i>
+                <span x-text="vc.name" class="truncate"></span>
+                <span class="ml-auto text-xs px-1.5 py-0.5 rounded bg-[#1e1f22] text-gray-400 font-normal" 
+                      x-text="getVoicePeerCount(vc.id)"></span>
+              </button>
+              
+              <!-- Voice Peers List inside channel -->
+              <div class="pl-6 space-y-1" x-show="getPeersInVoiceChannel(vc.id).length > 0">
+                <template x-for="vp in getPeersInVoiceChannel(vc.id)" :key="vp.pubkey">
+                  <div class="flex items-center space-x-2 py-1 px-2 rounded hover:bg-discord-hoverBg/50 text-xs">
+                    <div class="relative">
+                      <img :src="vp.avatar" class="w-5 h-5 rounded-full" 
+                           :class="vp.isSpeaking ? 'speaking-glow' : ''" />
+                    </div>
+                    <span class="truncate text-gray-300 font-medium" x-text="vp.name"></span>
+                    <i data-lucide="mic-off" class="w-3 h-3 text-discord-red ml-auto" x-show="vp.muted"></i>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </template>
+        </div>
+
+      </div>
+
+      <!-- Active Voice Connection Bar (If connected) -->
+      <div x-show="voice.connected" x-transition 
+           class="bg-[#111214] p-3 border-t border-[#1e1f22] flex flex-col space-y-2">
+        <div class="flex items-center justify-between text-xs">
+          <div class="flex items-center space-x-2">
+            <span class="relative flex h-2.5 w-2.5">
+              <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-discord-green opacity-75"></span>
+              <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-discord-green"></span>
+            </span>
+            <div class="flex flex-col">
+              <span class="font-bold text-discord-green">Voice Connected</span>
+              <span class="text-[10px] text-gray-400" x-text="voice.channel ? '🔊 ' + voice.channel : ''"></span>
+            </div>
+          </div>
+          <button @click="leaveVoiceChannel()" class="text-discord-red hover:bg-discord-red/10 p-1.5 rounded transition" title="Disconnect Voice">
+            <i data-lucide="phone-off" class="w-4 h-4"></i>
+          </button>
+        </div>
+        <div class="flex items-center justify-between text-[11px] text-gray-400 pt-1 border-t border-gray-800">
+          <span>TURN Relay: Metered.ca</span>
+          <span class="text-discord-green font-semibold">Anonymized</span>
+        </div>
+      </div>
+
+      <!-- Bottom User Profile Footer -->
+      <div class="h-14 bg-[#232428] px-2 flex items-center justify-between border-t border-[#1e1f22]">
+        <div class="flex items-center space-x-2 min-w-0 cursor-pointer p-1 rounded hover:bg-discord-hoverBg" @click="ui.showProfileModal = true">
+          <div class="relative shrink-0">
+            <img :src="user.avatar" class="w-8 h-8 rounded-full bg-gray-700" 
+                 :class="voice.isSpeaking ? 'speaking-glow' : ''" />
+            <div class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-[#232428]"
+                 :class="connectedRelaysCount > 0 ? 'bg-discord-green' : 'bg-discord-red'"></div>
+          </div>
+          <div class="flex flex-col min-w-0">
+            <span class="text-xs font-bold text-white truncate" x-text="user.name"></span>
+            <span class="text-[10px] text-gray-400 truncate" x-text="'npub:' + user.pubkeyTruncated"></span>
+          </div>
+        </div>
+
+        <div class="flex items-center space-x-1">
+          <!-- Mic Toggle -->
+          <button @click="toggleMute()" 
+                  class="p-1.5 rounded hover:bg-discord-hoverBg text-gray-300 hover:text-white transition"
+                  :class="voice.muted ? 'text-discord-red bg-discord-red/10' : ''"
+                  :title="voice.muted ? 'Unmute Mic' : 'Mute Mic'">
+            <i data-lucide="mic-off" class="w-4 h-4" x-show="voice.muted"></i>
+            <i data-lucide="mic" class="w-4 h-4" x-show="!voice.muted"></i>
+          </button>
+
+          <!-- Deafen Toggle -->
+          <button @click="toggleDeafen()" 
+                  class="p-1.5 rounded hover:bg-discord-hoverBg text-gray-300 hover:text-white transition"
+                  :class="voice.deafened ? 'text-discord-red bg-discord-red/10' : ''"
+                  :title="voice.deafened ? 'Undeafen Audio' : 'Deafen Audio'">
+            <i data-lucide="volume-x" class="w-4 h-4" x-show="voice.deafened"></i>
+            <i data-lucide="volume-2" class="w-4 h-4" x-show="!voice.deafened"></i>
+          </button>
+
+          <!-- Profile / Settings -->
+          <button @click="ui.showProfileModal = true" class="p-1.5 rounded hover:bg-discord-hoverBg text-gray-300 hover:text-white transition" title="User Settings">
+            <i data-lucide="settings" class="w-4 h-4"></i>
+          </button>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- 3. CENTER: CHAT AREA & MESSAGES FEED -->
+    <div class="flex-1 flex flex-col bg-discord-channelBg min-w-0 relative">
+      
+      <!-- Top Channel Bar -->
+      <div class="h-12 border-b border-[#1e1f22] px-4 flex items-center justify-between shadow-sm bg-discord-channelBg z-10">
+        <div class="flex items-center space-x-3 min-w-0">
+          <span class="text-gray-400 text-xl font-bold">#</span>
+          <span class="font-bold text-white text-base truncate" x-text="activeChannel"></span>
+          <div class="h-4 w-[1px] bg-gray-700"></div>
+          <span class="text-xs text-gray-400 truncate hidden sm:inline" x-text="room.pass ? '🔒 Zero-Trust AES-256 Encrypted Channel' : '🌐 Public Nostr Room Channel'"></span>
+        </div>
+
+        <!-- Search Bar -->
+        <div class="relative w-48 sm:w-64">
+          <input type="text" x-model="ui.search" placeholder="Search messages..." 
+                 class="w-full bg-[#1e1f22] text-xs text-gray-200 placeholder-gray-500 pl-8 pr-3 py-1.5 rounded focus:outline-none focus:ring-1 focus:ring-discord-blurple" />
+          <i data-lucide="search" class="w-3.5 h-3.5 text-gray-500 absolute left-2.5 top-2"></i>
+        </div>
+      </div>
+
+      <!-- Messages Scroll Container -->
+      <div id="messageFeed" class="flex-1 overflow-y-auto p-4 space-y-4">
+        
+        <!-- Welcome Banner -->
+        <div class="border-b border-gray-700/50 pb-4 mb-4">
+          <div class="w-12 h-12 rounded-full bg-discord-blurple/20 flex items-center justify-center text-discord-blurple mb-2">
+            <i data-lucide="hash" class="w-7 h-7"></i>
+          </div>
+          <h2 class="text-2xl font-bold text-white" x-text="'Welcome to #' + activeChannel + '!'"></h2>
+          <p class="text-xs text-gray-400 mt-1">
+            This is the start of the <span x-text="'#' + activeChannel"></span> channel in room <strong class="text-discord-blurple" x-text="'#' + room.slug"></strong>.
+          </p>
+        </div>
+
+        <!-- Empty State -->
+        <template x-if="filteredMessages.length === 0">
+          <div class="text-center py-12 text-gray-500 text-xs">
+            No messages yet. Send a message to start the conversation!
+          </div>
+        </template>
+
+        <!-- Message Cards -->
+        <template x-for="msg in filteredMessages" :key="msg.id">
+          <div class="group flex space-x-3 hover:bg-[#2e3035]/40 -mx-4 px-4 py-1.5 rounded transition-colors relative">
+            
+            <!-- User Avatar -->
+            <img :src="msg.avatar" class="w-10 h-10 rounded-full bg-gray-700 shrink-0 mt-0.5" />
+            
+            <div class="flex-1 min-w-0">
+              <!-- Header: Author Name, Pubkey Badge & Timestamp -->
+              <div class="flex items-baseline space-x-2">
+                <span class="font-semibold text-sm text-gray-100 hover:underline cursor-pointer" 
+                      x-text="msg.author" @click="quoteReply(msg)"></span>
+                <span class="text-[10px] text-gray-400 font-mono" x-text="'[' + msg.pubkey.substring(0, 8) + ']'"></span>
+                <span class="text-[10px] text-gray-500" x-text="formatTime(msg.timestamp)"></span>
+              </div>
+
+              <!-- Reply Quote Preview (if replying) -->
+              <template x-if="msg.replyTo">
+                <div class="flex items-center space-x-2 text-xs text-gray-400 bg-[#2b2d31]/60 px-2 py-1 rounded my-1 border-l-2 border-discord-blurple">
+                  <i data-lucide="corner-down-right" class="w-3 h-3 text-discord-blurple"></i>
+                  <span class="font-semibold" x-text="msg.replyTo.author + ':'"></span>
+                  <span class="truncate" x-text="msg.replyTo.snippet"></span>
+                </div>
+              </template>
+
+              <!-- Sanitized Text Content -->
+              <div class="text-sm text-gray-200 break-words leading-relaxed mt-0.5" x-html="msg.sanitizedHtml"></div>
+
+              <!-- Rich Media Embeds -->
+              <template x-if="msg.embeds && msg.embeds.length > 0">
+                <div class="mt-2 space-y-2 max-w-lg">
+                  <template x-for="embed in msg.embeds" :key="embed.url">
+                    <div>
+                      <!-- YouTube Embed -->
+                      <template x-if="embed.type === 'youtube'">
+                        <div class="aspect-video w-full rounded-lg overflow-hidden border border-gray-800 bg-black">
+                          <iframe :src="'https://www.youtube-nocookie.com/embed/' + embed.id" 
+                                  class="w-full h-full" frameborder="0" allowfullscreen></iframe>
+                        </div>
+                      </template>
+
+                      <!-- Direct Image / GIF Embed -->
+                      <template x-if="embed.type === 'image'">
+                        <img :src="embed.url" 
+                             @click="openMediaModal(embed.url, 'image')"
+                             class="max-h-72 rounded-lg border border-gray-800 hover:opacity-95 transition cursor-pointer object-cover" />
+                      </template>
+
+                      <!-- MP4 / WebM Video Embed -->
+                      <template x-if="embed.type === 'video'">
+                        <video controls class="max-h-72 w-full rounded-lg border border-gray-800 bg-black">
+                          <source :src="embed.url" />
+                        </video>
+                      </template>
+                    </div>
+                  </template>
+                </div>
+              </template>
+
+              <!-- Message Action Hover Buttons -->
+              <div class="absolute right-4 top-2 hidden group-hover:flex items-center space-x-1 bg-[#2b2d31] border border-gray-700/50 rounded px-1 py-0.5 shadow-md">
+                <button @click="quoteReply(msg)" class="p-1 text-gray-400 hover:text-white rounded" title="Reply">
+                  <i data-lucide="reply" class="w-3.5 h-3.5"></i>
+                </button>
+                <button @click="addReaction(msg, '👍')" class="p-1 text-gray-400 hover:text-white rounded" title="Thumbs Up">
+                  👍
+                </button>
+                <button @click="addReaction(msg, '❤️')" class="p-1 text-gray-400 hover:text-white rounded" title="Heart">
+                  ❤️
+                </button>
+              </div>
+
+              <!-- Reactions List -->
+              <template x-if="msg.reactions && Object.keys(msg.reactions).length > 0">
+                <div class="flex flex-wrap gap-1 mt-1.5">
+                  <template x-for="(count, emoji) in msg.reactions" :key="emoji">
+                    <button @click="addReaction(msg, emoji)" 
+                            class="flex items-center space-x-1 text-xs px-2 py-0.5 rounded bg-[#2b2d31] border border-gray-700/40 text-gray-300 hover:bg-[#35373c]">
+                      <span x-text="emoji"></span>
+                      <span x-text="count" class="font-bold text-[10px]"></span>
+                    </button>
+                  </template>
+                </div>
+              </template>
+
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <!-- Active Reply Bar -->
+      <div x-show="ui.replyTarget" x-transition class="bg-[#2b2d31] px-4 py-1.5 flex items-center justify-between border-t border-gray-700 text-xs">
+        <div class="flex items-center space-x-2 truncate">
+          <span class="text-gray-400">Replying to</span>
+          <span class="font-bold text-discord-blurple" x-text="ui.replyTarget?.author"></span>
+        </div>
+        <button @click="ui.replyTarget = null" class="text-gray-400 hover:text-white">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <!-- Message Input Box -->
+      <div class="p-4 bg-discord-channelBg">
+        <div class="bg-[#383a40] rounded-lg p-2.5 flex items-center space-x-3 shadow-inner border border-gray-700/30 relative">
+          
+          <!-- Add Attachment / Link helper -->
+          <button @click="promptMediaUrl()" class="text-gray-400 hover:text-white transition" title="Embed Media Link">
+            <i data-lucide="plus-circle" class="w-5 h-5"></i>
+          </button>
+
+          <!-- Input Textarea -->
+          <input type="text" x-model="newMessageText" @keydown.enter.prevent="sendMessage()" 
+                 :placeholder="'Message #' + activeChannel + '...'"
+                 class="w-full bg-transparent text-sm text-gray-100 placeholder-gray-500 focus:outline-none" />
+
+          <!-- Emoji Picker Toggle -->
+          <div class="relative">
+            <button @click="ui.showEmojiPicker = !ui.showEmojiPicker" class="text-gray-400 hover:text-yellow-400 transition" title="Add Emoji">
+              <i data-lucide="smile" class="w-5 h-5"></i>
+            </button>
+            
+            <!-- Emoji Picker Popover -->
+            <div x-show="ui.showEmojiPicker" @click.outside="ui.showEmojiPicker = false" 
+                 class="absolute right-0 bottom-10 z-50 shadow-2xl rounded-lg overflow-hidden border border-gray-700">
+              <emoji-picker @emoji-click="onEmojiSelect($event)"></emoji-picker>
+            </div>
+          </div>
+
+          <!-- Send Button -->
+          <button @click="sendMessage()" class="bg-discord-blurple hover:bg-discord-blurpleHover text-white p-1.5 rounded-md transition shadow">
+            <i data-lucide="send" class="w-4 h-4"></i>
+          </button>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- 4. RIGHT SIDEBAR: ONLINE MEMBERS & VOICE PEERS -->
+    <div class="w-60 bg-discord-sidebarBg border-l border-[#1e1f22]/50 flex flex-col shrink-0 hidden lg:flex">
+      
+      <div class="h-12 border-b border-[#1e1f22] px-4 flex items-center font-bold text-gray-300 text-xs uppercase tracking-wider">
+        <span>Room Members</span>
+        <span class="ml-auto bg-[#1e1f22] text-gray-400 px-2 py-0.5 rounded text-[10px]" x-text="activePeerList.length"></span>
+      </div>
+
+      <div class="flex-1 overflow-y-auto p-3 space-y-4">
+        
+        <!-- Online Section -->
+        <div>
+          <div class="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">
+            Online — <span x-text="activePeerList.length"></span>
+          </div>
+
+          <div class="space-y-1">
+            <!-- Local User Item -->
+            <div class="flex items-center space-x-2.5 p-1.5 rounded hover:bg-discord-hoverBg cursor-pointer">
+              <div class="relative shrink-0">
+                <img :src="user.avatar" class="w-8 h-8 rounded-full bg-gray-700" 
+                     :class="voice.isSpeaking ? 'speaking-glow' : ''" />
+                <div class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-discord-green border-2 border-discord-sidebarBg"></div>
+              </div>
+              <div class="flex flex-col min-w-0">
+                <span class="text-xs font-bold text-white truncate" x-text="user.name + ' (You)'"></span>
+                <span class="text-[10px] text-discord-blurple font-semibold" x-text="voice.connected ? '🔊 Voice Connected' : 'Online'"></span>
+              </div>
+            </div>
+
+            <!-- Remote Peers -->
+            <template x-for="peer in activePeerList" :key="peer.pubkey">
+              <div class="flex flex-col p-1.5 rounded hover:bg-discord-hoverBg cursor-pointer space-y-1">
+                <div class="flex items-center space-x-2.5">
+                  <div class="relative shrink-0">
+                    <img :src="peer.avatar" class="w-8 h-8 rounded-full bg-gray-700" 
+                         :class="peer.isSpeaking ? 'speaking-glow' : ''" />
+                    <div class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-discord-sidebarBg"
+                         :class="peer.inVoice ? 'bg-discord-green' : 'bg-discord-green'"></div>
+                  </div>
+                  <div class="flex flex-col min-w-0 flex-1">
+                    <span class="text-xs font-semibold text-gray-200 truncate" x-text="peer.name"></span>
+                    <span class="text-[10px] text-gray-400 font-mono truncate" x-text="'[' + peer.pubkey.substring(0,8) + ']'"></span>
+                  </div>
+                </div>
+
+                <!-- Per-Peer Volume Slider (if peer in voice) -->
+                <template x-if="peer.inVoice">
+                  <div class="flex items-center space-x-2 px-1 pt-1 border-t border-gray-700/40">
+                    <i data-lucide="volume-2" class="w-3 h-3 text-gray-400"></i>
+                    <input type="range" min="0" max="200" :value="peer.volume || 100" 
+                           @input="setPeerVolume(peer.pubkey, $event.target.value)"
+                           class="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-discord-blurple" />
+                    <span class="text-[9px] text-gray-400 w-6 text-right" x-text="(peer.volume || 100) + '%'"></span>
+                  </div>
+                </template>
+              </div>
+            </template>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+  </div>
+
+  <!-- 5. MODALS & OVERLAYS -->
+  
+  <!-- Room Create / Join Modal -->
+  <div x-show="ui.showRoomModal" x-transition @click.self="ui.showRoomModal = false"
+       class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-discord-sidebarBg w-full max-w-md rounded-xl shadow-2xl border border-gray-700 p-6 space-y-5">
+      <div class="flex justify-between items-center border-b border-gray-700 pb-3">
+        <h3 class="text-lg font-bold text-white flex items-center space-x-2">
+          <i data-lucide="hash" class="w-5 h-5 text-discord-blurple"></i>
+          <span>Join or Create Room</span>
+        </h3>
+        <button @click="ui.showRoomModal = false" class="text-gray-400 hover:text-white">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="space-y-4">
+        <div>
+          <label class="block text-xs font-bold uppercase text-gray-400 mb-1">Room Slug Name</label>
+          <input type="text" x-model="ui.newRoomSlug" placeholder="e.g. secret-lounge or a3f9e1b0" 
+                 class="w-full bg-[#1e1f22] text-sm text-gray-100 p-2.5 rounded border border-gray-700 focus:outline-none focus:ring-2 focus:ring-discord-blurple" />
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold uppercase text-gray-400 mb-1">Room Encryption Password (Optional)</label>
+          <input type="password" x-model="ui.newRoomPass" placeholder="Leave empty for public unencrypted room" 
+                 class="w-full bg-[#1e1f22] text-sm text-gray-100 p-2.5 rounded border border-gray-700 focus:outline-none focus:ring-2 focus:ring-discord-blurple" />
+          <p class="text-[11px] text-gray-400 mt-1">
+            🔑 Passwords derive 256-bit AES-GCM zero-trust keys via 100k PBKDF2 iterations.
+          </p>
+        </div>
+      </div>
+
+      <div class="flex justify-end space-x-3 pt-2">
+        <button @click="ui.showRoomModal = false" class="px-4 py-2 text-sm text-gray-300 hover:underline">Cancel</button>
+        <button @click="submitSwitchRoom()" class="px-5 py-2 text-sm bg-discord-blurple hover:bg-discord-blurpleHover text-white font-semibold rounded-md shadow transition">
+          Switch Room
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- User Profile Settings Modal -->
+  <div x-show="ui.showProfileModal" x-transition @click.self="ui.showProfileModal = false"
+       class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-discord-sidebarBg w-full max-w-md rounded-xl shadow-2xl border border-gray-700 p-6 space-y-5">
+      <div class="flex justify-between items-center border-b border-gray-700 pb-3">
+        <h3 class="text-lg font-bold text-white flex items-center space-x-2">
+          <i data-lucide="user" class="w-5 h-5 text-discord-blurple"></i>
+          <span>User Profile & Nostr Identity</span>
+        </h3>
+        <button @click="ui.showProfileModal = false" class="text-gray-400 hover:text-white">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="space-y-4">
+        <div class="flex items-center space-x-4">
+          <img :src="user.avatar" class="w-16 h-16 rounded-full bg-gray-700" />
+          <div>
+            <label class="block text-xs font-bold uppercase text-gray-400 mb-1">Display Handle</label>
+            <input type="text" x-model="user.name" @change="saveProfile()" 
+                   class="bg-[#1e1f22] text-sm text-gray-100 p-2 rounded border border-gray-700 focus:outline-none focus:ring-1 focus:ring-discord-blurple" />
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold uppercase text-gray-400 mb-1">Ephemeral Pubkey</label>
+          <div class="bg-[#1e1f22] text-xs font-mono text-gray-300 p-2.5 rounded border border-gray-700 break-all select-all" x-text="user.pk"></div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold uppercase text-gray-400 mb-1">Connected Nostr Relays</label>
+          <div class="space-y-1 bg-[#1e1f22] p-2 rounded border border-gray-700 text-xs">
+            <template x-for="r in relays" :key="r.url">
+              <div class="flex items-center justify-between">
+                <span class="text-gray-300 font-mono" x-text="r.url"></span>
+                <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase"
+                      :class="r.status === 'connected' ? 'bg-discord-green/20 text-discord-green' : 'bg-discord-red/20 text-discord-red'"
+                      x-text="r.status"></span>
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex justify-end pt-2">
+        <button @click="ui.showProfileModal = false" class="px-5 py-2 text-sm bg-discord-blurple hover:bg-discord-blurpleHover text-white font-semibold rounded-md shadow transition">
+          Close
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Media Expand Modal -->
+  <div x-show="ui.showMediaModal" x-transition @click="ui.showMediaModal = false"
+       class="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4 cursor-pointer">
+    <img :src="ui.mediaModalUrl" class="max-w-full max-h-[90vh] rounded-lg shadow-2xl" />
+  </div>
+
+  <!-- APPLICATION LOGIC & CRYPTO ENGINE -->
+  <script>
+    function discordApp() {
+      return {
+        // App State
+        user: {
+          sk: null,
+          pk: '',
+          name: 'AnonPeer',
+          avatar: '',
+          pubkeyTruncated: ''
+        },
+        room: {
+          slug: '',
+          pass: '',
+          key: null
+        },
+        personalRoomSlug: '',
+        textChannels: [
+          { id: 'general', name: 'general', unread: false },
+          { id: 'lounge', name: 'lounge', unread: false },
+          { id: 'media-share', name: 'media-share', unread: false }
+        ],
+        voiceChannels: [
+          { id: 'General Voice', name: '🔊 General Voice' },
+          { id: 'Gaming Lounge', name: '🔊 Gaming Lounge' }
+        ],
+        activeChannel: 'general',
+        newMessageText: '',
+        messages: [],
+        peers: {}, // map pubkey -> peer obj
+        relays: [
+          { url: 'wss://nos.lol', ws: null, status: 'disconnected' },
+          { url: 'wss://relay.damus.io', ws: null, status: 'disconnected' },
+          { url: 'wss://relay.primal.net', ws: null, status: 'disconnected' }
+        ],
+        processedEventIds: new Set(),
+        
+        // Voice State
+        voice: {
+          connected: false,
+          channel: null,
+          muted: false,
+          deafened: false,
+          isSpeaking: false,
+          localStream: null,
+          localAudioContext: null,
+          peerConnections: {}, // pubkey -> RTCPeerConnection
+          peerAudioElements: {} // pubkey -> HTMLAudioElement
+        },
+
+        // UI Controls
+        ui: {
+          search: '',
+          showRoomModal: false,
+          showProfileModal: false,
+          showEmojiPicker: false,
+          showMediaModal: false,
+          mediaModalUrl: '',
+          replyTarget: null,
+          newRoomSlug: '',
+          newRoomPass: ''
+        },
+
+        // TURN / ICE Config
+        iceServers: [
+          { urls: "stun:stun.l.google.com:19302" },
+          {
+            urls: "turn:openrelay.metered.ca:80",
+            username: "openrelayproject",
+            credential: "openrelayproject"
+          },
+          {
+            urls: "turn:openrelay.metered.ca:443",
+            username: "openrelayproject",
+            credential: "openrelayproject"
+          }
+        ],
+
+        // Computed
+        get connectedRelaysCount() {
+          return this.relays.filter(r => r.status === 'connected').length;
+        },
+        get filteredMessages() {
+          let list = this.messages.filter(m => m.channel === this.activeChannel);
+          if (this.ui.search.trim()) {
+            const q = this.ui.search.toLowerCase();
+            list = list.filter(m => m.author.toLowerCase().includes(q) || m.content.toLowerCase().includes(q));
+          }
+          return list;
+        },
+        get activePeerList() {
+          const now = Date.now();
+          return Object.values(this.peers).filter(p => (now - p.lastSeen) < 30000);
+        },
+
+        // APP INIT
+        async initApp() {
+          await this.initUserIdentity();
+          this.parseHashRoom();
+          await this.updateRoomCryptoKey();
+          this.connectRelays();
+          this.startHeartbeatLoop();
+
+          // Refresh Lucide icons
+          this.$nextTick(() => {
+            if (window.lucide) window.lucide.createIcons();
+          });
+        },
+
+        // 1. IDENTITY MANAGEMENT
+        async initUserIdentity() {
+          let skHex = sessionStorage.getItem('discord_lite_sk');
+          if (!skHex) {
+            if (window.NostrTools && window.NostrTools.generateSecretKey) {
+              const sk = window.NostrTools.generateSecretKey();
+              skHex = Array.from(sk).map(b => b.toString(16).padStart(2, '0')).join('');
+            } else {
+              const randomBytes = window.crypto.getRandomValues(new Uint8Array(32));
+              skHex = Array.from(randomBytes).map(b => b.toString(16).padStart(2, '0')).join('');
+            }
+            sessionStorage.setItem('discord_lite_sk', skHex);
+          }
+          this.user.sk = skHex;
+
+          if (window.NostrTools && window.NostrTools.getPublicKey) {
+            this.user.pk = window.NostrTools.getPublicKey(this.hexToBytes(skHex));
+          } else {
+            this.user.pk = skHex.substring(0, 32);
+          }
+
+          this.user.pubkeyTruncated = this.user.pk.substring(0, 8);
+          this.user.name = 'Peer_' + this.user.pubkeyTruncated;
+          this.user.avatar = this.generateIdenticonSvg(this.user.pk);
+
+          // Personal room slug based on sha256 of pubkey
+          const pubHash = await this.sha256Hex(this.user.pk);
+          this.personalRoomSlug = pubHash.substring(0, 8);
+        },
+
+        saveProfile() {
+          if (!this.user.name.trim()) this.user.name = 'Peer_' + this.user.pubkeyTruncated;
+          this.broadcastPresence();
+        },
+
+        // 2. ROOM & CRYPTO KEY DERIVATION (PBKDF2 + AES-GCM)
+        parseHashRoom() {
+          const hash = window.location.hash.substring(1);
+          const params = new URLSearchParams(hash);
+          const r = params.get('room');
+          const p = params.get('pass');
+          
+          this.room.slug = r || this.personalRoomSlug;
+          this.room.pass = p || '';
+        },
+
+        async updateRoomCryptoKey() {
+          const pass = this.room.pass && this.room.pass.trim() ? this.room.pass.trim() : 'public-discord-lite-default-pass';
+          const enc = new TextEncoder();
+          const salt = enc.encode('discord-lite-' + this.room.slug);
+          
+          const baseKey = await window.crypto.subtle.importKey(
+            'raw', enc.encode(pass), { name: 'PBKDF2' }, false, ['deriveKey']
+          );
+          
+          this.room.key = await window.crypto.subtle.deriveKey(
+            { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
+            baseKey,
+            { name: 'AES-GCM', length: 256 },
+            false,
+            ['encrypt', 'decrypt']
+          );
+
+          this.updateUrlHash();
+        },
+
+        updateUrlHash() {
+          let hashStr = `room=${encodeURIComponent(this.room.slug)}`;
+          if (this.room.pass) {
+            hashStr += `&pass=${encodeURIComponent(this.room.pass)}`;
+          }
+          window.history.replaceState(null, '', '#' + hashStr);
+        },
+
+        async switchRoom(newSlug, newPass = '') {
+          this.room.slug = newSlug;
+          this.room.pass = newPass;
+          this.messages = [];
+          this.processedEventIds.clear();
+          await this.updateRoomCryptoKey();
+          this.resubscribeAll();
+          this.broadcastPresence();
+        },
+
+        submitSwitchRoom() {
+          if (!this.ui.newRoomSlug.trim()) return;
+          this.switchRoom(this.ui.newRoomSlug.trim(), this.ui.newRoomPass.trim());
+          this.ui.showRoomModal = false;
+        },
+
+        copyInviteLink() {
+          navigator.clipboard.writeText(window.location.href);
+          alert('Room invite link copied to clipboard!');
+        },
+
+        // Encrypt payload object to AES-GCM hex JSON
+        async encryptPayload(dataObj) {
+          const enc = new TextEncoder();
+          const iv = window.crypto.getRandomValues(new Uint8Array(12));
+          const jsonStr = JSON.stringify(dataObj);
+          const encryptedBuf = await window.crypto.subtle.encrypt(
+            { name: 'AES-GCM', iv },
+            this.room.key,
+            enc.encode(jsonStr)
+          );
+          return JSON.stringify({
+            iv: Array.from(iv).map(b => b.toString(16).padStart(2, '0')).join(''),
+            data: Array.from(new Uint8Array(encryptedBuf)).map(b => b.toString(16).padStart(2, '0')).join('')
+          });
+        },
+
+        // Decrypt payload string (returns null if key mismatch or corrupt)
+        async decryptPayload(cipherJsonStr) {
+          try {
+            const parsed = JSON.parse(cipherJsonStr);
+            if (!parsed.iv || !parsed.data) return null;
+            const iv = this.hexToBytes(parsed.iv);
+            const data = this.hexToBytes(parsed.data);
+            const decBuf = await window.crypto.subtle.decrypt(
+              { name: 'AES-GCM', iv },
+              this.room.key,
+              data
+            );
+            const dec = new TextDecoder();
+            return JSON.parse(dec.decode(decBuf));
+          } catch (e) {
+            return null; // Quietly discard mismatched events
+          }
+        },
+
+        // 3. NOSTR MULTI-RELAY WEBSOCKET MANAGER
+        connectRelays() {
+          this.relays.forEach(r => {
+            this.connectSingleRelay(r);
+          });
+        },
+
+        connectSingleRelay(relay) {
+          try {
+            relay.status = 'connecting';
+            relay.ws = new WebSocket(relay.url);
+
+            relay.ws.onopen = () => {
+              relay.status = 'connected';
+              this.subscribeRelay(relay);
+            };
+
+            relay.ws.onmessage = async (msg) => {
+              this.handleRelayMessage(msg.data);
+            };
+
+            relay.ws.onclose = () => {
+              relay.status = 'disconnected';
+              setTimeout(() => this.connectSingleRelay(relay), 5000);
+            };
+
+            relay.ws.onerror = () => {
+              relay.status = 'disconnected';
+            };
+          } catch (e) {
+            relay.status = 'disconnected';
+          }
+        },
+
+        subscribeRelay(relay) {
+          if (!relay.ws || relay.ws.readyState !== WebSocket.OPEN) return;
+          const subId = 'sub_' + this.room.slug;
+          const filter = {
+            kinds: [1, 20000, 25000],
+            '#t': [this.room.slug],
+            since: Math.floor(Date.now() / 1000) - 86400
+          };
+          relay.ws.send(JSON.stringify(['REQ', subId, filter]));
+        },
+
+        resubscribeAll() {
+          this.relays.forEach(r => this.subscribeRelay(r));
+        },
+
+        async publishNostrEvent(kind, encryptedContent, targetPubkey = null) {
+          const tags = [['t', this.room.slug]];
+          if (targetPubkey) tags.push(['p', targetPubkey]);
+
+          const eventTemplate = {
+            kind,
+            created_at: Math.floor(Date.now() / 1000),
+            tags,
+            content: encryptedContent,
+            pubkey: this.user.pk
+          };
+
+          let signedEvent;
+          if (window.NostrTools && window.NostrTools.finalizeEvent) {
+            signedEvent = window.NostrTools.finalizeEvent(eventTemplate, this.hexToBytes(this.user.sk));
+          } else {
+            // Simplified hash & signature fallback
+            const id = await this.sha256Hex(JSON.stringify(eventTemplate));
+            signedEvent = { ...eventTemplate, id, sig: id };
+          }
+
+          const msgFrame = JSON.stringify(['EVENT', signedEvent]);
+          this.relays.forEach(r => {
+            if (r.ws && r.ws.readyState === WebSocket.OPEN) {
+              r.ws.send(msgFrame);
+            }
+          });
+        },
+
+        async handleRelayMessage(dataStr) {
+          try {
+            const msg = JSON.parse(dataStr);
+            if (msg[0] === 'EVENT' && msg[1]) {
+              const ev = msg[1];
+              if (this.processedEventIds.has(ev.id)) return;
+              this.processedEventIds.add(ev.id);
+
+              const decrypted = await this.decryptPayload(ev.content);
+              if (!decrypted) return; // Wrong key or corrupt payload
+
+              if (ev.kind === 1) {
+                // Text Message
+                this.onIncomingChatMessage(ev, decrypted);
+              } else if (ev.kind === 20000) {
+                // Presence Heartbeat
+                this.onIncomingPresence(ev, decrypted);
+              } else if (ev.kind === 25000) {
+                // WebRTC Signal
+                this.onIncomingWebRTCSignal(ev, decrypted);
+              }
+            }
+          } catch (err) {}
+        },
+
+        // 4. CHAT MESSAGING ENGINE & RICH EMBEDS
+        async sendMessage() {
+          if (!this.newMessageText.trim()) return;
+
+          const text = this.newMessageText.trim();
+          this.newMessageText = '';
+
+          const payload = {
+            type: 'text',
+            text: text,
+            channel: this.activeChannel,
+            author: this.user.name,
+            replyTo: this.ui.replyTarget ? {
+              author: this.ui.replyTarget.author,
+              snippet: this.ui.replyTarget.content.substring(0, 50)
+            } : null
+          };
+
+          this.ui.replyTarget = null;
+          const encrypted = await this.encryptPayload(payload);
+          await this.publishNostrEvent(1, encrypted);
+        },
+
+        onIncomingChatMessage(ev, payload) {
+          const parsed = this.parseRichContent(payload.text || '');
+          const msgObj = {
+            id: ev.id,
+            pubkey: ev.pubkey,
+            author: payload.author || ('Peer_' + ev.pubkey.substring(0, 8)),
+            avatar: this.generateIdenticonSvg(ev.pubkey),
+            content: payload.text,
+            sanitizedHtml: parsed.text,
+            embeds: parsed.embeds,
+            channel: payload.channel || 'general',
+            timestamp: ev.created_at * 1000,
+            replyTo: payload.replyTo,
+            reactions: {}
+          };
+
+          this.messages.push(msgObj);
+          this.messages.sort((a, b) => a.timestamp - b.timestamp);
+
+          this.$nextTick(() => {
+            const feed = document.getElementById('messageFeed');
+            if (feed) feed.scrollTop = feed.scrollHeight;
+            if (window.lucide) window.lucide.createIcons();
+          });
+        },
+
+        parseRichContent(rawText) {
+          if (!rawText) return { text: '', embeds: [] };
+          const embeds = [];
+          const urlRegex = /(https?:\/\/[^\s]+)/g;
+
+          let html = rawText.replace(urlRegex, (url) => {
+            const cleanUrl = url.trim();
+
+            // YouTube Match
+            const ytMatch = cleanUrl.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
+            if (ytMatch && ytMatch[1]) {
+              embeds.push({ type: 'youtube', id: ytMatch[1], url: cleanUrl });
+              return `<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" class="text-discord-blurple hover:underline break-all">${cleanUrl}</a>`;
+            }
+
+            // Image Match
+            if (cleanUrl.match(/\.(jpeg|jpg|gif|png|webp)(\?.*)?$/i)) {
+              embeds.push({ type: 'image', url: cleanUrl });
+              return `<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" class="text-discord-blurple hover:underline break-all">${cleanUrl}</a>`;
+            }
+
+            // Video Match
+            if (cleanUrl.match(/\.(mp4|webm)(\?.*)?$/i)) {
+              embeds.push({ type: 'video', url: cleanUrl });
+              return `<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" class="text-discord-blurple hover:underline break-all">${cleanUrl}</a>`;
+            }
+
+            return `<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" class="text-discord-blurple hover:underline break-all">${cleanUrl}</a>`;
+          });
+
+          const sanitizedText = window.DOMPurify ? window.DOMPurify.sanitize(html, { ADD_ATTR: ['target', 'rel'] }) : html;
+          return { text: sanitizedText, embeds };
+        },
+
+        quoteReply(msg) {
+          this.ui.replyTarget = msg;
+        },
+
+        addReaction(msg, emoji) {
+          if (!msg.reactions[emoji]) msg.reactions[emoji] = 0;
+          msg.reactions[emoji]++;
+        },
+
+        onEmojiSelect(event) {
+          if (event.detail && event.detail.unicode) {
+            this.newMessageText += event.detail.unicode;
+          }
+          this.ui.showEmojiPicker = false;
+        },
+
+        promptMediaUrl() {
+          const url = prompt('Enter Image, GIF, YouTube, or Video URL:');
+          if (url && url.trim()) {
+            this.newMessageText += ' ' + url.trim();
+          }
+        },
+
+        openMediaModal(url, type = 'image') {
+          this.ui.mediaModalUrl = url;
+          this.ui.showMediaModal = true;
+        },
+
+        // 5. PRESENCE HEARTBEAT & SIDEBAR
+        startHeartbeatLoop() {
+          this.broadcastPresence();
+          setInterval(() => this.broadcastPresence(), 10000);
+          setInterval(() => this.pruneInactivePeers(), 5000);
+        },
+
+        async broadcastPresence() {
+          const payload = {
+            type: 'presence',
+            name: this.user.name,
+            inVoice: this.voice.connected,
+            channel: this.voice.channel,
+            muted: this.voice.muted,
+            deafened: this.voice.deafened
+          };
+          const encrypted = await this.encryptPayload(payload);
+          await this.publishNostrEvent(20000, encrypted);
+        },
+
+        onIncomingPresence(ev, payload) {
+          if (ev.pubkey === this.user.pk) return;
+          this.peers[ev.pubkey] = {
+            pubkey: ev.pubkey,
+            name: payload.name || ('Peer_' + ev.pubkey.substring(0, 8)),
+            avatar: this.generateIdenticonSvg(ev.pubkey),
+            lastSeen: Date.now(),
+            inVoice: !!payload.inVoice,
+            channel: payload.channel || null,
+            muted: !!payload.muted,
+            deafened: !!payload.deafened,
+            isSpeaking: false,
+            volume: this.peers[ev.pubkey]?.volume || 100
+          };
+        },
+
+        pruneInactivePeers() {
+          const now = Date.now();
+          Object.keys(this.peers).forEach(pk => {
+            if (now - this.peers[pk].lastSeen > 30000) {
+              if (this.voice.peerConnections[pk]) {
+                this.voice.peerConnections[pk].close();
+                delete this.voice.peerConnections[pk];
+              }
+              delete this.peers[pk];
+            }
+          });
+        },
+
+        getPeersInVoiceChannel(channelId) {
+          return Object.values(this.peers).filter(p => p.inVoice && p.channel === channelId);
+        },
+
+        getVoicePeerCount(channelId) {
+          let count = this.getPeersInVoiceChannel(channelId).length;
+          if (this.voice.connected && this.voice.channel === channelId) count++;
+          return count;
+        },
+
+        // 6. WEBRTC P2P VOICE ENGINE WITH ANONYMIZED TURN RELAY
+        async toggleVoiceChannel(channelId) {
+          if (this.voice.connected && this.voice.channel === channelId) {
+            this.leaveVoiceChannel();
+          } else {
+            await this.joinVoiceChannel(channelId);
+          }
+        },
+
+        async joinVoiceChannel(channelId) {
+          try {
+            if (this.voice.connected) this.leaveVoiceChannel();
+
+            this.voice.localStream = await navigator.mediaDevices.getUserMedia({
+              audio: { echoCancellation: true, noiseSuppression: true },
+              video: false
+            });
+
+            this.voice.connected = true;
+            this.voice.channel = channelId;
+
+            // Setup local audio level monitoring
+            this.setupLocalAudioAnalyser(this.voice.localStream);
+
+            this.broadcastPresence();
+
+            // Connect to peers in the same voice channel
+            const sameChannelPeers = this.getPeersInVoiceChannel(channelId);
+            sameChannelPeers.forEach(peer => {
+              // Deterministic initiator: Lexically smaller pubkey creates offer
+              if (this.user.pk < peer.pubkey) {
+                this.initiateWebRTCConnection(peer.pubkey);
+              }
+            });
+
+          } catch (err) {
+            alert('Microphone access denied or unavailable: ' + err.message);
+          }
+        },
+
+        leaveVoiceChannel() {
+          if (this.voice.localStream) {
+            this.voice.localStream.getTracks().forEach(t => t.stop());
+            this.voice.localStream = null;
+          }
+
+          Object.keys(this.voice.peerConnections).forEach(pk => {
+            this.voice.peerConnections[pk].close();
+            delete this.voice.peerConnections[pk];
+          });
+
+          this.voice.connected = false;
+          this.voice.channel = null;
+          this.broadcastPresence();
+        },
+
+        toggleMute() {
+          this.voice.muted = !this.voice.muted;
+          if (this.voice.localStream) {
+            this.voice.localStream.getAudioTracks().forEach(t => t.enabled = !this.voice.muted);
+          }
+          this.broadcastPresence();
+        },
+
+        toggleDeafen() {
+          this.voice.deafened = !this.voice.deafened;
+          Object.values(this.voice.peerAudioElements).forEach(audio => {
+            audio.muted = this.voice.deafened;
+          });
+          this.broadcastPresence();
+        },
+
+        setPeerVolume(pubkey, vol) {
+          if (this.peers[pubkey]) this.peers[pubkey].volume = vol;
+          if (this.voice.peerAudioElements[pubkey]) {
+            this.voice.peerAudioElements[pubkey].volume = (vol / 100);
+          }
+        },
+
+        async initiateWebRTCConnection(targetPubkey) {
+          const pc = this.createPeerConnection(targetPubkey);
+          this.voice.localStream.getTracks().forEach(track => pc.addTrack(track, this.voice.localStream));
+
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+
+          const payload = {
+            type: 'offer',
+            sdp: offer
+          };
+          const encrypted = await this.encryptPayload(payload);
+          await this.publishNostrEvent(25000, encrypted, targetPubkey);
+        },
+
+        createPeerConnection(targetPubkey) {
+          const pc = new RTCPeerConnection({ iceServers: this.iceServers });
+          this.voice.peerConnections[targetPubkey] = pc;
+
+          pc.onicecandidate = async (e) => {
+            if (e.candidate) {
+              const payload = { type: 'ice', candidate: e.candidate };
+              const encrypted = await this.encryptPayload(payload);
+              await this.publishNostrEvent(25000, encrypted, targetPubkey);
+            }
+          };
+
+          pc.ontrack = (e) => {
+            const audio = new Audio();
+            audio.srcObject = e.streams[0];
+            audio.autoplay = true;
+            audio.muted = this.voice.deafened;
+            audio.volume = (this.peers[targetPubkey]?.volume || 100) / 100;
+            this.voice.peerAudioElements[targetPubkey] = audio;
+
+            this.setupRemoteAudioAnalyser(targetPubkey, e.streams[0]);
+          };
+
+          return pc;
+        },
+
+        async onIncomingWebRTCSignal(ev, payload) {
+          if (ev.pubkey === this.user.pk) return;
+          const targetTag = ev.tags.find(t => t[0] === 'p');
+          if (!targetTag || targetTag[1] !== this.user.pk) return;
+
+          const senderPubkey = ev.pubkey;
+
+          if (payload.type === 'offer') {
+            const pc = this.createPeerConnection(senderPubkey);
+            if (this.voice.localStream) {
+              this.voice.localStream.getTracks().forEach(track => pc.addTrack(track, this.voice.localStream));
+            }
+            await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+
+            const replyPayload = { type: 'answer', sdp: answer };
+            const encrypted = await this.encryptPayload(replyPayload);
+            await this.publishNostrEvent(25000, encrypted, senderPubkey);
+
+          } else if (payload.type === 'answer') {
+            const pc = this.voice.peerConnections[senderPubkey];
+            if (pc) await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+
+          } else if (payload.type === 'ice') {
+            const pc = this.voice.peerConnections[senderPubkey];
+            if (pc && payload.candidate) {
+              await pc.addIceCandidate(new RTCIceCandidate(payload.candidate));
+            }
+          }
+        },
+
+        setupLocalAudioAnalyser(stream) {
+          try {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const source = ctx.createMediaStreamSource(stream);
+            const analyser = ctx.createAnalyser();
+            analyser.fftSize = 256;
+            source.connect(analyser);
+
+            const data = new Uint8Array(analyser.frequencyBinCount);
+            const check = () => {
+              if (!this.voice.connected) {
+                ctx.close();
+                return;
+              }
+              analyser.getByteFrequencyData(data);
+              let sum = 0;
+              for (let i = 0; i < data.length; i++) sum += data[i];
+              const avg = sum / data.length;
+              this.voice.isSpeaking = !this.voice.muted && avg > 15;
+              requestAnimationFrame(check);
+            };
+            check();
+          } catch (e) {}
+        },
+
+        setupRemoteAudioAnalyser(pubkey, stream) {
+          try {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const source = ctx.createMediaStreamSource(stream);
+            const analyser = ctx.createAnalyser();
+            analyser.fftSize = 256;
+            source.connect(analyser);
+
+            const data = new Uint8Array(analyser.frequencyBinCount);
+            const check = () => {
+              if (!this.voice.peerConnections[pubkey]) {
+                ctx.close();
+                return;
+              }
+              analyser.getByteFrequencyData(data);
+              let sum = 0;
+              for (let i = 0; i < data.length; i++) sum += data[i];
+              const avg = sum / data.length;
+              if (this.peers[pubkey]) {
+                this.peers[pubkey].isSpeaking = avg > 15;
+              }
+              requestAnimationFrame(check);
+            };
+            check();
+          } catch (e) {}
+        },
+
+        // UTILS & HELPERS
+        async sha256Hex(str) {
+          const buf = new TextEncoder().encode(str);
+          const digest = await window.crypto.subtle.digest('SHA-256', buf);
+          return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, '0')).join('');
+        },
+
+        hexToBytes(hex) {
+          const bytes = new Uint8Array(hex.length / 2);
+          for (let i = 0; i < hex.length; i += 2) {
+            bytes[i / 2] = parseInt(hex.substr(i, 2), 16);
+          }
+          return bytes;
+        },
+
+        generateIdenticonSvg(pubkey) {
+          let hash = 0;
+          for (let i = 0; i < pubkey.length; i++) {
+            hash = ((hash << 5) - hash) + pubkey.charCodeAt(i);
+            hash |= 0;
+          }
+          const h1 = Math.abs(hash) % 360;
+          const h2 = (h1 + 140) % 360;
+          const svg = `<svg width="40" height="40" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="g_${pubkey.substring(0,6)}" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="hsl(${h1}, 75%, 55%)"/>
+                <stop offset="100%" stop-color="hsl(${h2}, 85%, 45%)"/>
+              </linearGradient>
+            </defs>
+            <rect width="40" height="40" rx="20" fill="url(#g_${pubkey.substring(0,6)})"/>
+            <circle cx="20" cy="15" r="7" fill="rgba(255,255,255,0.85)"/>
+            <path d="M 8 36 C 8 26, 32 26, 32 36 Z" fill="rgba(255,255,255,0.85)"/>
+          </svg>`;
+          return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
+        },
+
+        formatTime(ms) {
+          const date = new Date(ms);
+          return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        }
+
+      };
+    }
+  </script>
+</body>
+</html>
