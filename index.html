@@ -282,7 +282,7 @@
       <div class="h-14 bg-[#232428] px-2 flex items-center justify-between border-t border-[#1e1f22]">
         <div class="flex items-center space-x-2 min-w-0 cursor-pointer p-1 rounded hover:bg-app-hoverBg" @click="ui.showProfileModal = true">
           <div class="relative shrink-0">
-            <img :src="user.avatar" class="w-8 h-8 rounded-full bg-gray-700" 
+            <img :src="user.avatar" class="w-8 h-8 rounded-full bg-gray-700 object-cover" 
                  :class="voice.isSpeaking ? 'speaking-glow' : ''" />
             <div class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-[#232428]"
                  :class="connectedRelaysCount > 0 ? 'bg-app-green' : 'bg-app-red'"></div>
@@ -1073,6 +1073,8 @@
 
         saveProfile() {
           if (!this.user.name.trim()) this.user.name = 'Peer_' + this.user.pubkeyTruncated;
+          // Re-apply avatar source (initials mode depends on name)
+          this.applyAvatarSource();
           this.broadcastPresence();
         },
 
@@ -1204,7 +1206,7 @@
             channel = {
               pubkey: targetPubkey,
               name: peer ? peer.name : ('Peer_' + targetPubkey.substring(0, 8)),
-              avatar: peer ? peer.avatar : this.generateIdenticonSvg(targetPubkey),
+              avatar: peer ? peer.avatar : this.getPeerAvatar(targetPubkey),
               unread: false,
               lastMessage: null
             };
@@ -1262,7 +1264,7 @@
             channel = {
               pubkey: senderPubkey,
               name: payload.author || ('Peer_' + senderPubkey.substring(0, 8)),
-              avatar: this.generateIdenticonSvg(senderPubkey),
+              avatar: this.getPeerAvatar(senderPubkey),
               unread: false,
               lastMessage: null
             };
@@ -1296,7 +1298,8 @@
             id: 'dm_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8),
             pubkey: authorPubkey,
             author: authorName,
-            avatar: this.generateIdenticonSvg(authorPubkey),
+            // Use broadcast avatar from peers cache if available
+            avatar: this.getPeerAvatar(authorPubkey),
             content: text,
             sanitizedHtml: parsed.text,
             embeds: parsed.embeds,
@@ -1892,7 +1895,8 @@
             id: ev.id,
             pubkey: ev.pubkey,
             author: payload.author || ('Peer_' + ev.pubkey.substring(0, 8)),
-            avatar: this.generateIdenticonSvg(ev.pubkey),
+            // Use broadcast avatar from peers cache if available
+            avatar: this.getPeerAvatar(ev.pubkey),
             content: payload.text,
             sanitizedHtml: isAction ? parsed.text : parsed.text,
             embeds: parsed.embeds,
@@ -2013,6 +2017,7 @@
           const payload = {
             type: 'presence',
             name: this.user.name,
+            avatar: this.user.avatar || '',
             inVoice: this.voice.connected,
             channel: this.voice.channel,
             muted: this.voice.muted,
@@ -2027,7 +2032,8 @@
           this.peers[ev.pubkey] = {
             pubkey: ev.pubkey,
             name: payload.name || ('Peer_' + ev.pubkey.substring(0, 8)),
-            avatar: this.generateIdenticonSvg(ev.pubkey),
+            // Use broadcast avatar URL if provided, fall back to identicon
+            avatar: payload.avatar || this.generateIdenticonSvg(ev.pubkey),
             lastSeen: Date.now(),
             inVoice: !!payload.inVoice,
             channel: payload.channel || null,
@@ -2668,6 +2674,18 @@
         },
 
         // === AVATAR MANAGEMENT ===
+
+        // Get the best available avatar for a pubkey (from peers cache or generate fresh)
+        getPeerAvatar(pubkey) {
+          const peer = this.peers[pubkey];
+          if (peer && peer.avatar) return peer.avatar;
+          return this.generateIdenticonSvg(pubkey);
+        },
+
+        // Get the best available avatar for the current user
+        getMyAvatar() {
+          return this.user.avatar || this.generateIdenticonSvg(this.user.pk);
+        },
 
         // Generate the appropriate avatar URL based on the selected source
         applyAvatarSource() {
