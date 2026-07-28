@@ -450,8 +450,6 @@
                   </template>
                   <div class="absolute right-4 top-2 hidden group-hover:flex items-center space-x-1 bg-[#2b2d31] border border-gray-700/50 rounded px-1 py-0.5 shadow-md">
                     <button @click="quoteReply(msg)" class="p-1 text-gray-400 hover:text-white rounded" title="Reply"><i data-lucide="reply" class="w-3.5 h-3.5"></i></button>
-                    <button @click="addReaction(msg, '👍')" class="p-1 text-gray-400 hover:text-white rounded" title="Thumbs Up">👍</button>
-                    <button @click="addReaction(msg, '❤️')" class="p-1 text-gray-400 hover:text-white rounded" title="Heart">❤️</button>
                     <!-- Reaction emoji picker -->
                     <div class="relative" x-data="{ open: false }">
                       <button @click="toggleReactionPicker(msg)" class="p-1 text-gray-400 hover:text-yellow-400 rounded text-sm" title="Add reaction">➕</button>
