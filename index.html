@@ -450,14 +450,8 @@
                   </template>
                   <div class="absolute right-4 top-2 hidden group-hover:flex items-center space-x-1 bg-[#2b2d31] border border-gray-700/50 rounded px-1 py-0.5 shadow-md">
                     <button @click="quoteReply(msg)" class="p-1 text-gray-400 hover:text-white rounded" title="Reply"><i data-lucide="reply" class="w-3.5 h-3.5"></i></button>
-                    <!-- Reaction emoji picker -->
-                    <div class="relative" x-data="{ open: false }">
-                      <button @click="toggleReactionPicker(msg)" class="p-1 text-gray-400 hover:text-yellow-400 rounded text-sm" title="Add reaction">➕</button>
-                      <div x-show="ui.reactionTarget === msg.id" @click.outside="ui.reactionTarget = null"
-                           class="absolute right-0 bottom-8 z-50 shadow-2xl rounded-lg overflow-hidden border border-gray-700">
-                        <emoji-picker @emoji-click="onReactionSelect($event)" style="height:260px;width:240px;"></emoji-picker>
-                      </div>
-                    </div>
+                    <!-- Reaction: opens the shared emoji picker at the bottom -->
+                    <button @click="openReactionPicker(msg)" class="p-1 text-gray-400 hover:text-yellow-400 rounded text-sm" title="Add reaction">➕</button>
                   </div>
                   <template x-if="msg.reactions && Object.keys(msg.reactions).length > 0">
                     <div class="flex flex-wrap gap-1 mt-1.5">
@@ -566,7 +560,7 @@
             <!-- Emoji Picker Popover -->
             <div x-show="ui.showEmojiPicker" @click.outside="ui.showEmojiPicker = false" 
                  class="absolute right-0 bottom-10 z-50 shadow-2xl rounded-lg overflow-hidden border border-gray-700">
-              <emoji-picker @emoji-click="onEmojiSelect($event)"></emoji-picker>
+              <emoji-picker @emoji-click="onEmojiPickerSelect($event)"></emoji-picker>
             </div>
           </div>
 
@@ -2069,38 +2063,42 @@
         },
 
         // Toggle reaction emoji picker for a specific message
-        toggleReactionPicker(msg) {
-          if (this.ui.reactionTarget === msg.id) {
-            this.ui.reactionTarget = null;
-          } else {
-            this.ui.reactionTarget = msg.id;
-          }
+        // Open the shared emoji picker to add a reaction to a message
+        openReactionPicker(msg) {
+          this.ui.reactionTarget = msg.id;
+          this.ui.showEmojiPicker = true;
         },
 
-        // Handle emoji selection from the reaction picker
-        onReactionSelect(event) {
-          if (event.detail && event.detail.unicode) {
-            // Find the target message by id
-            const target = this.messages.find(m => m.id === this.ui.reactionTarget);
-            if (target) {
-              this.addReaction(target, event.detail.unicode);
+        // Unified handler for all emoji picker selections
+        onEmojiPickerSelect(event) {
+          if (!event.detail || !event.detail.unicode) return;
+          const emoji = event.detail.unicode;
+
+          // If there's a pending reaction target, use it as a reaction
+          if (this.ui.reactionTarget) {
+            const targetId = this.ui.reactionTarget;
+            this.ui.reactionTarget = null;
+            // Find in room messages
+            const roomMsg = this.messages.find(m => m.id === targetId);
+            if (roomMsg) {
+              this.addReaction(roomMsg, emoji);
+              this.ui.showEmojiPicker = false;
+              return;
             }
-            // Also check DM messages
+            // Find in DM messages
             for (const pubkey of Object.keys(this.dmMessages)) {
-              const found = this.dmMessages[pubkey].find(m => m.id === this.ui.reactionTarget);
-              if (found) {
-                this.addReaction(found, event.detail.unicode);
+              const dmMsg = this.dmMessages[pubkey].find(m => m.id === targetId);
+              if (dmMsg) {
+                this.addReaction(dmMsg, emoji);
                 break;
               }
             }
+            this.ui.showEmojiPicker = false;
+            return;
           }
-          this.ui.reactionTarget = null;
-        },
 
-        onEmojiSelect(event) {
-          if (event.detail && event.detail.unicode) {
-            this.newMessageText += event.detail.unicode;
-          }
+          // Otherwise, insert into the message input (existing behavior)
+          this.newMessageText += emoji;
           this.ui.showEmojiPicker = false;
         },
 
