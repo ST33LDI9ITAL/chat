@@ -1221,7 +1221,10 @@
         },
 
         createPeerConnection(targetPubkey) {
-          const pc = new RTCPeerConnection({ iceServers: this.iceServers });
+          const pc = new RTCPeerConnection({ 
+            iceServers: this.iceServers
+          });
+          pc._iceCandidatesQueue = [];
           this.voice.peerConnections[targetPubkey] = pc;
 
           pc.onicecandidate = async (e) => {
@@ -1259,6 +1262,13 @@
               this.voice.localStream.getTracks().forEach(track => pc.addTrack(track, this.voice.localStream));
             }
             await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+            
+            // Process queued candidates
+            while (pc._iceCandidatesQueue && pc._iceCandidatesQueue.length > 0) {
+              const cand = pc._iceCandidatesQueue.shift();
+              await pc.addIceCandidate(cand).catch(() => {});
+            }
+
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
 
@@ -1268,12 +1278,24 @@
 
           } else if (payload.type === 'answer') {
             const pc = this.voice.peerConnections[senderPubkey];
-            if (pc) await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+            if (pc) {
+              await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+              while (pc._iceCandidatesQueue && pc._iceCandidatesQueue.length > 0) {
+                const cand = pc._iceCandidatesQueue.shift();
+                await pc.addIceCandidate(cand).catch(() => {});
+              }
+            }
 
           } else if (payload.type === 'ice') {
             const pc = this.voice.peerConnections[senderPubkey];
             if (pc && payload.candidate) {
-              await pc.addIceCandidate(new RTCIceCandidate(payload.candidate));
+              const cand = new RTCIceCandidate(payload.candidate);
+              if (pc.remoteDescription && pc.remoteDescription.type) {
+                await pc.addIceCandidate(cand).catch(() => {});
+              } else {
+                if (!pc._iceCandidatesQueue) pc._iceCandidatesQueue = [];
+                pc._iceCandidatesQueue.push(cand);
+              }
             }
           }
         },
@@ -1281,6 +1303,7 @@
         setupLocalAudioAnalyser(stream) {
           try {
             const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            if (ctx.state === 'suspended') ctx.resume();
             const source = ctx.createMediaStreamSource(stream);
             const analyser = ctx.createAnalyser();
             analyser.fftSize = 256;
@@ -1306,6 +1329,7 @@
         setupRemoteAudioAnalyser(pubkey, stream) {
           try {
             const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            if (ctx.state === 'suspended') ctx.resume();
             const source = ctx.createMediaStreamSource(stream);
             const analyser = ctx.createAnalyser();
             analyser.fftSize = 256;
