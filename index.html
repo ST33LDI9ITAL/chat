@@ -745,7 +745,7 @@
       <div class="flex justify-between items-center border-b border-gray-700 pb-3">
         <h3 class="text-lg font-bold text-white flex items-center space-x-2">
           <i data-lucide="user" class="w-5 h-5 text-app-accent"></i>
-          <span>User Profile & Nostr Identity</span>
+          <span>User Profile</span>
         </h3>
         <button @click="ui.showProfileModal = false" class="text-gray-400 hover:text-white">
           <i data-lucide="x" class="w-5 h-5"></i>
@@ -753,13 +753,32 @@
       </div>
 
       <div class="space-y-4">
+        <!-- Avatar preview and service selector -->
         <div class="flex items-center space-x-4">
-          <img :src="user.avatar" class="w-16 h-16 rounded-full bg-gray-700" />
-          <div>
-            <label class="block text-xs font-bold uppercase text-gray-400 mb-1">Display Handle</label>
-            <input type="text" x-model="user.name" @change="saveProfile()" 
-                   class="bg-[#1e1f22] text-sm text-gray-100 p-2 rounded border border-gray-700 focus:outline-none focus:ring-1 focus:ring-app-accent" />
+          <div class="relative">
+            <img :src="user.avatar" class="w-16 h-16 rounded-full bg-gray-700 object-cover" />
           </div>
+          <div class="flex-1 space-y-2">
+            <label class="block text-xs font-bold uppercase text-gray-400 mb-1">Avatar Source</label>
+            <select x-model="ui.avatarSource" @change="applyAvatarSource()"
+                    class="w-full bg-[#1e1f22] text-sm text-gray-100 p-2 rounded border border-gray-700 focus:outline-none focus:ring-1 focus:ring-app-accent">
+              <option value="dicebear">🎨 DiceBear (auto from pubkey)</option>
+              <option value="initials">🔤 Initials (from display name)</option>
+              <option value="identicon">◆ Identicon (generated from pubkey)</option>
+              <option value="custom">🌐 Custom image URL</option>
+            </select>
+            <template x-if="ui.avatarSource === 'custom'">
+              <input type="text" x-model="ui.customAvatarUrl" @change="applyAvatarSource()" 
+                     placeholder="https://example.com/avatar.jpg"
+                     class="w-full bg-[#1e1f22] text-sm text-gray-100 p-2 rounded border border-gray-700 focus:outline-none focus:ring-1 focus:ring-app-accent" />
+            </template>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold uppercase text-gray-400 mb-1">Display Handle</label>
+          <input type="text" x-model="user.name" @change="saveProfile()" 
+                 class="w-full bg-[#1e1f22] text-sm text-gray-100 p-2 rounded border border-gray-700 focus:outline-none focus:ring-1 focus:ring-app-accent" />
         </div>
 
         <div>
@@ -908,7 +927,9 @@
           connecting: true,
           showChannelManager: false,
           channelManagerType: 'text', // 'text' or 'voice'
-          newChannelName: ''
+          newChannelName: '',
+          avatarSource: 'identicon', // 'dicebear' | 'initials' | 'identicon' | 'custom'
+          customAvatarUrl: ''
         },
 
         // TURN / ICE Config: ExpressTURN (Primary), Public Metered & ProcessOne Fallbacks
@@ -986,6 +1007,15 @@
           }
           await this.initUserIdentity();
           if (this.appError) return;
+          // Restore avatar preference from session
+          try {
+            const savedSource = sessionStorage.getItem('chat_avatar_source');
+            if (savedSource) {
+              this.ui.avatarSource = savedSource;
+              this.ui.customAvatarUrl = sessionStorage.getItem('chat_avatar_custom') || '';
+            }
+          } catch (e) {}
+          this.applyAvatarSource();
           this.parseHashRoom();
           await this.updateRoomCryptoKey();
           this.loadDMState();
@@ -1034,7 +1064,7 @@
 
           this.user.pubkeyTruncated = this.user.pk.substring(0, 8);
           this.user.name = 'Peer_' + this.user.pubkeyTruncated;
-          this.user.avatar = this.generateIdenticonSvg(this.user.pk);
+          // Avatar is set by applyAvatarSource() in initApp after identity is ready
 
           // Personal room slug based on sha256 of pubkey
           const pubHash = await this.sha256Hex(this.user.pk);
@@ -2637,6 +2667,36 @@
           return bytes;
         },
 
+        // === AVATAR MANAGEMENT ===
+
+        // Generate the appropriate avatar URL based on the selected source
+        applyAvatarSource() {
+          const source = this.ui.avatarSource;
+          switch (source) {
+            case 'dicebear':
+              // Deterministic SVG avatar from pubkey seed — no external upload, no personal data sent
+              this.user.avatar = 'https://api.dicebear.com/9.x/thumbs/svg?seed=' + this.user.pk + '&scale=90';
+              break;
+            case 'initials':
+              // Initials-based avatar from display name — safe, no upload
+              this.user.avatar = 'https://ui-avatars.com/api/?name=' + encodeURIComponent(this.user.name) + '&background=5865f2&color=fff&size=128&bold=true';
+              break;
+            case 'identicon':
+              this.user.avatar = this.generateIdenticonSvg(this.user.pk);
+              break;
+            case 'custom':
+              if (this.ui.customAvatarUrl && this.ui.customAvatarUrl.trim()) {
+                this.user.avatar = this.ui.customAvatarUrl.trim();
+              }
+              break;
+          }
+          this.saveProfile();
+          // Persist avatar source selection
+          try { sessionStorage.setItem('chat_avatar_source', source); } catch (e) {}
+          try { sessionStorage.setItem('chat_avatar_custom', this.ui.customAvatarUrl || ''); } catch (e) {}
+        },
+
+        // Generate a deterministic identicon (colored silhouette) from a pubkey
         generateIdenticonSvg(pubkey) {
           let hash = 0;
           for (let i = 0; i < pubkey.length; i++) {
