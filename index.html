@@ -1535,6 +1535,10 @@
 
         // Encrypt payload object to AES-GCM hex JSON
         async encryptPayload(dataObj) {
+          // crypto.subtle requires a secure context (HTTPS or localhost)
+          if (!window.crypto.subtle) {
+            throw new Error('Web Crypto API not available — serve over HTTPS or localhost');
+          }
           const enc = new TextEncoder();
           const iv = window.crypto.getRandomValues(new Uint8Array(12));
           const jsonStr = JSON.stringify(dataObj);
@@ -1786,7 +1790,12 @@
             await this.publishNostrEvent(1, encrypted);
           } catch (err) {
             console.error('sendMessage failed:', err);
-            this.showToast('Failed to send message');
+            const msg = err.message || 'Unknown error';
+            if (msg.includes('secure context') || msg.includes('HTTPS')) {
+              this.showToast('🔒 Encryption requires HTTPS — serve over HTTPS or use GitHub Pages');
+            } else {
+              this.showToast('Failed to send message: ' + msg.substring(0, 60));
+            }
           }
         },
 
