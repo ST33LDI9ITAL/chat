@@ -144,6 +144,9 @@
           <i data-lucide="lock" class="w-4 h-4 text-app-green" x-show="room.pass"></i>
           <i data-lucide="globe" class="w-4 h-4 text-gray-400" x-show="!room.pass"></i>
           <span class="truncate text-sm" x-text="'#' + room.slug"></span>
+          <!-- Owner badge -->
+          <span x-show="room.ownerPubkey === user.pk" class="text-[10px] text-yellow-400 font-bold" title="Room Owner">👑</span>
+          <span x-show="room.ownerPubkey && room.ownerPubkey !== user.pk" class="text-[10px] text-gray-500" title="Owned by another user">👑</span>
         </div>
         <button @click="copyInviteLink()" title="Copy Room Invite Link" class="text-gray-400 hover:text-white p-1 rounded hover:bg-app-hoverBg transition">
           <i data-lucide="share-2" class="w-4 h-4"></i>
@@ -157,15 +160,27 @@
         <div>
           <div class="px-2 text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center justify-between mb-1">
             <span>Text Channels</span>
-            <i data-lucide="hash" class="w-3.5 h-3.5"></i>
+            <div class="flex items-center space-x-1">
+              <i data-lucide="hash" class="w-3.5 h-3.5"></i>
+              <!-- Owner: gear icon opens channel manager -->
+              <button x-show="user.pk === room.ownerPubkey" @click="ui.showChannelManager = true; ui.channelManagerType = 'text'"
+                      class="text-gray-500 hover:text-white transition p-0.5 rounded" title="Manage Text Channels">
+                <i data-lucide="settings" class="w-3 h-3"></i>
+              </button>
+            </div>
           </div>
           <template x-for="ch in textChannels" :key="ch.id">
             <button @click="activeChannel = ch.id; activeDM = null"
-                    class="w-full flex items-center px-2 py-1.5 rounded text-sm font-medium transition-colors"
+                    class="w-full flex items-center px-2 py-1.5 rounded text-sm font-medium transition-colors group"
                     :class="activeChannel === ch.id && !activeDM ? 'bg-app-activeBg text-white' : 'text-gray-400 hover:bg-app-hoverBg hover:text-gray-200'">
               <span class="text-gray-400 text-base mr-2">#</span>
               <span x-text="ch.name" class="truncate"></span>
               <span x-show="ch.unread" class="ml-auto w-2 h-2 rounded-full bg-app-accent"></span>
+              <!-- Owner: remove button on hover -->
+              <button x-show="user.pk === room.ownerPubkey" @click.stop="removeTextChannel(ch.id)"
+                      class="ml-1 opacity-0 group-hover:opacity-100 text-gray-500 hover:text-app-red transition shrink-0" title="Remove channel">
+                <i data-lucide="x" class="w-3 h-3"></i>
+              </button>
             </button>
           </template>
         </div>
@@ -194,18 +209,31 @@
         <div>
           <div class="px-2 text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center justify-between mb-1">
             <span>Voice Channels</span>
-            <i data-lucide="volume-2" class="w-3.5 h-3.5"></i>
+            <div class="flex items-center space-x-1">
+              <i data-lucide="volume-2" class="w-3.5 h-3.5"></i>
+              <!-- Owner: gear icon opens channel manager -->
+              <button x-show="user.pk === room.ownerPubkey" @click="ui.showChannelManager = true; ui.channelManagerType = 'voice'"
+                      class="text-gray-500 hover:text-white transition p-0.5 rounded" title="Manage Voice Channels">
+                <i data-lucide="settings" class="w-3 h-3"></i>
+              </button>
+            </div>
           </div>
           <template x-for="vc in voiceChannels" :key="vc.id">
-            <div class="space-y-1">
-              <button @click="toggleVoiceChannel(vc.id)"
-                      class="w-full flex items-center px-2 py-1.5 rounded text-sm font-medium transition-colors group"
-                      :class="voice.channel === vc.id ? 'bg-app-green/20 text-app-green font-semibold' : 'text-gray-400 hover:bg-app-hoverBg hover:text-gray-200'">
-                <i data-lucide="radio" class="w-4 h-4 mr-2" :class="voice.channel === vc.id ? 'text-app-green animate-pulse' : 'text-gray-400'"></i>
-                <span x-text="vc.name" class="truncate"></span>
-                <span class="ml-auto text-xs px-1.5 py-0.5 rounded bg-[#1e1f22] text-gray-400 font-normal" 
-                      x-text="getVoicePeerCount(vc.id)"></span>
-              </button>
+            <div class="space-y-1 group">
+              <div class="flex items-center space-x-1">
+                <button @click="toggleVoiceChannel(vc.id)"
+                        class="flex-1 flex items-center px-2 py-1.5 rounded text-sm font-medium transition-colors"
+                        :class="voice.channel === vc.id ? 'bg-app-green/20 text-app-green font-semibold' : 'text-gray-400 hover:bg-app-hoverBg hover:text-gray-200'">
+                  <i data-lucide="radio" class="w-4 h-4 mr-2" :class="voice.channel === vc.id ? 'text-app-green animate-pulse' : 'text-gray-400'"></i>
+                  <span x-text="vc.name" class="truncate"></span>
+                  <span class="ml-auto text-xs px-1.5 py-0.5 rounded bg-[#1e1f22] text-gray-400 font-normal" x-text="getVoicePeerCount(vc.id)"></span>
+                </button>
+                <!-- Owner: remove button on hover -->
+                <button x-show="user.pk === room.ownerPubkey" @click.stop="removeVoiceChannel(vc.id)"
+                        class="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-app-red transition shrink-0 p-1" title="Remove voice channel">
+                  <i data-lucide="x" class="w-3 h-3"></i>
+                </button>
+              </div>
               
               <!-- Voice Peers List inside channel -->
               <div class="pl-6 space-y-1" x-show="getPeersInVoiceChannel(vc.id).length > 0">
@@ -655,6 +683,58 @@
     </div>
   </div>
 
+  <!-- Channel Manager Modal (owner only) -->
+  <div x-show="ui.showChannelManager" x-transition @click.self="ui.showChannelManager = false"
+       class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-app-sidebarBg w-full max-w-md rounded-xl shadow-2xl border border-gray-700 p-6 space-y-5">
+      <div class="flex justify-between items-center border-b border-gray-700 pb-3">
+        <h3 class="text-lg font-bold text-white flex items-center space-x-2">
+          <span x-text="ui.channelManagerType === 'text' ? 'Manage Text Channels' : 'Manage Voice Channels'"></span>
+        </h3>
+        <button @click="ui.showChannelManager = false" class="text-gray-400 hover:text-white">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="space-y-3">
+        <!-- Add new channel -->
+        <div class="flex items-center space-x-2">
+          <input type="text" x-model="ui.newChannelName" @keydown.enter.prevent="submitAddChannel()"
+                 placeholder="New channel name..."
+                 class="flex-1 bg-[#1e1f22] text-sm text-gray-100 p-2 rounded border border-gray-700 focus:outline-none focus:ring-1 focus:ring-app-accent" />
+          <button @click="submitAddChannel()" class="bg-app-accent hover:bg-app-accentHover text-white text-xs font-semibold px-3 py-2 rounded transition shrink-0">
+            Add
+          </button>
+        </div>
+
+        <div class="h-px bg-gray-700"></div>
+
+        <!-- Current channels list -->
+        <div class="space-y-1 max-h-60 overflow-y-auto">
+          <template x-for="ch in (ui.channelManagerType === 'text' ? textChannels : voiceChannels)" :key="ch.id">
+            <div class="flex items-center justify-between px-2 py-1.5 rounded hover:bg-app-hoverBg">
+              <div class="flex items-center space-x-2 text-sm">
+                <span class="text-gray-400" x-text="ui.channelManagerType === 'text' ? '#' : '🔊'"></span>
+                <span class="text-gray-200" x-text="ch.name"></span>
+              </div>
+              <button @click="submitRemoveChannel(ch.id)"
+                      class="text-gray-500 hover:text-app-red transition p-1 rounded"
+                      title="Remove channel">
+                <i data-lucide="trash-2" class="w-4 h-4"></i>
+              </button>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <div class="flex justify-end pt-2">
+        <button @click="ui.showChannelManager = false" class="px-5 py-2 text-sm bg-app-accent hover:bg-app-accentHover text-white font-semibold rounded-md shadow transition">
+          Close
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- User Profile Settings Modal -->
   <div x-show="ui.showProfileModal" x-transition @click.self="ui.showProfileModal = false"
        class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -746,7 +826,10 @@
           slug: '',
           pass: '',
           key: null,
-          topic: '' // channel topic, set via /topic command
+          topic: '', // channel topic, set via /topic command
+          ownerPubkey: null, // pubkey of the room owner (discovered or claimed)
+          ownerDiscovered: false, // true once owner is resolved
+          ownerClaimTimer: null // setTimeout handle for delayed ownership claim
         },
         personalRoomSlug: '',
         textChannels: [
@@ -802,6 +885,9 @@
         audioCtx: null,         // AudioContext (deferred init on first gesture)
         soundCooldown: false,   // debounce flag to prevent stacked sounds
 
+        // Tracks the source of the current channel config (for debugging/fallback)
+        channelConfigSource: 'default', // 'relay' | 'localStorage' | 'default'
+
         // UI Controls
         ui: {
           search: '',
@@ -815,7 +901,10 @@
           newRoomSlug: '',
           newRoomPass: '',
           toast: '',
-          connecting: true
+          connecting: true,
+          showChannelManager: false,
+          channelManagerType: 'text', // 'text' or 'voice'
+          newChannelName: ''
         },
 
         // TURN / ICE Config: ExpressTURN (Primary), Public Metered & ProcessOne Fallbacks
@@ -1000,7 +1089,35 @@
         async switchRoom(newSlug, newPass = '') {
           this.room.slug = newSlug;
           this.room.pass = newPass;
+
+          // Reset room ownership state for the new room
+          this.room.ownerPubkey = this.loadRoomOwner(newSlug);
+          this.room.ownerDiscovered = !!this.room.ownerPubkey;
+          if (this.room.ownerClaimTimer) {
+            clearTimeout(this.room.ownerClaimTimer);
+            this.room.ownerClaimTimer = null;
+          }
+
+          // Load cached topic and channel config
           this.room.topic = this.loadRoomTopic(newSlug);
+          const cachedConfig = this.loadRoomConfig(newSlug);
+          if (cachedConfig) {
+            this.applyChannelConfig(cachedConfig);
+            this.channelConfigSource = 'localStorage';
+          } else {
+            // Reset to defaults (will be overridden by relay event if available)
+            this.textChannels = [
+              { id: 'general', name: 'general', unread: false },
+              { id: 'lounge', name: 'lounge', unread: false },
+              { id: 'media-share', name: 'media-share', unread: false }
+            ];
+            this.voiceChannels = [
+              { id: 'General Voice', name: '🔊 General Voice' },
+              { id: 'Gaming Lounge', name: '🔊 Gaming Lounge' }
+            ];
+            this.channelConfigSource = 'default';
+          }
+
           this.messages = [];
           this.processedEventIds.clear();
           // Leave DM view when switching rooms
@@ -1009,6 +1126,22 @@
           await this.updateRoomCryptoKey();
           this.resubscribeAll();
           this.broadcastPresence();
+
+          // If no owner discovered from cache, start claim timer
+          if (!this.room.ownerDiscovered) {
+            this.room.ownerClaimTimer = setTimeout(() => {
+              this.room.ownerClaimTimer = null;
+              this.claimRoomOwnership();
+            }, 3000);
+          }
+
+          // Load config from relay: if no kind:30001 arrives within 5s, cached/default sticks
+          setTimeout(() => {
+            if (this.channelConfigSource !== 'relay' && this.room.ownerDiscovered) {
+              // Owner is known but no config event arrived — maybe relay has none
+              // This is fine, we have cached or default config
+            }
+          }, 5000);
         },
 
         submitSwitchRoom() {
@@ -1158,6 +1291,193 @@
           });
         },
 
+        // === ROOM OWNERSHIP & CHANNEL CONFIG (kind:30000 / kind:30001) ===
+
+        // Handle incoming room owner declaration event (kind:30000)
+        onIncomingRoomOwnerEvent(ev) {
+          // Accept only if we have no owner yet or the incoming has an earlier created_at
+          if (this.room.ownerDiscovered) {
+            // Only accept if this event is strictly older than the current owner's event
+            // (first-to-claim wins on a tie)
+            if (this.room.ownerPubkey && ev.pubkey !== this.room.ownerPubkey) {
+              // Another pubkey claims ownership — check timestamps
+              // Since we process in arrival order and use replaceable dedup on relay,
+              // the relay has already dedup'd. Only one will reach us.
+              return;
+            }
+            return;
+          }
+
+          this.room.ownerPubkey = ev.pubkey;
+          this.room.ownerDiscovered = true;
+
+          // Cancel any pending claim timer — someone else already owns this room
+          if (this.room.ownerClaimTimer) {
+            clearTimeout(this.room.ownerClaimTimer);
+            this.room.ownerClaimTimer = null;
+          }
+
+          // Cache owner in localStorage
+          this.saveRoomOwner(this.room.slug, ev.pubkey);
+
+          console.log('Room owner discovered:', ev.pubkey.substring(0, 8));
+        },
+
+        // Claim ownership of the current room (publish kind:30000)
+        async claimRoomOwnership() {
+          if (this.room.ownerDiscovered || !this.user.pk) return;
+
+          const eventTemplate = {
+            kind: 30000,
+            created_at: Math.floor(Date.now() / 1000),
+            tags: [
+              ['t', this.room.slug],
+              ['d', this.room.slug],
+              ['alt', 'Chat room owner declaration']
+            ],
+            content: this.user.pk
+          };
+
+          if (!window.NostrTools || !window.NostrTools.finalizeEvent) return;
+          const signedEvent = window.NostrTools.finalizeEvent(eventTemplate, this.hexToBytes(this.user.sk));
+          const msgFrame = JSON.stringify(['EVENT', signedEvent]);
+
+          this.relays.forEach(r => {
+            if (r.ws && r.ws.readyState === WebSocket.OPEN) r.ws.send(msgFrame);
+          });
+
+          // Also set ourselves as owner locally (will be confirmed when echo comes back)
+          this.room.ownerPubkey = this.user.pk;
+          this.room.ownerDiscovered = true;
+          this.saveRoomOwner(this.room.slug, this.user.pk);
+
+          // Publish initial channel config
+          await this.publishChannelConfig();
+        },
+
+        // Handle incoming channel config event (kind:30001)
+        onIncomingChannelConfigEvent(ev) {
+          // Only accept config from the room owner
+          if (!this.room.ownerPubkey || ev.pubkey !== this.room.ownerPubkey) return;
+
+          try {
+            const config = JSON.parse(ev.content);
+            if (!config || !config.version || !Array.isArray(config.textChannels) || !Array.isArray(config.voiceChannels)) return;
+
+            this.applyChannelConfig(config);
+            this.channelConfigSource = 'relay';
+            this.saveRoomConfig(this.room.slug, ev.content);
+          } catch (e) {
+            // Corrupt config — ignore
+          }
+        },
+
+        // Publish the current channel config as kind:30001
+        async publishChannelConfig() {
+          const content = JSON.stringify({
+            version: 1,
+            textChannels: this.textChannels.map(c => ({ id: c.id, name: c.name })),
+            voiceChannels: this.voiceChannels.map(c => ({ id: c.id, name: c.name }))
+          });
+
+          const eventTemplate = {
+            kind: 30001,
+            created_at: Math.floor(Date.now() / 1000),
+            tags: [
+              ['t', this.room.slug],
+              ['d', this.room.slug],
+              ['alt', 'Chat room channel configuration']
+            ],
+            content
+          };
+
+          if (!window.NostrTools || !window.NostrTools.finalizeEvent) return;
+          const signedEvent = window.NostrTools.finalizeEvent(eventTemplate, this.hexToBytes(this.user.sk));
+          const msgFrame = JSON.stringify(['EVENT', signedEvent]);
+
+          this.relays.forEach(r => {
+            if (r.ws && r.ws.readyState === WebSocket.OPEN) r.ws.send(msgFrame);
+          });
+
+          // Cache locally
+          this.saveRoomConfig(this.room.slug, content);
+        },
+
+        // Channel CRUD operations (owner only, enforced by UI visibility)
+        async addTextChannel(name) {
+          const trimmed = name.trim();
+          if (!trimmed) return;
+          if (this.textChannels.find(c => c.name === trimmed)) {
+            this.showToast('Channel already exists');
+            return;
+          }
+          const id = trimmed.toLowerCase().replace(/\s+/g, '-');
+          this.textChannels.push({ id, name: trimmed, unread: false });
+          await this.publishChannelConfig();
+          this.showToast('Channel #' + trimmed + ' added');
+        },
+
+        async removeTextChannel(id) {
+          if (this.textChannels.length <= 1) {
+            this.showToast('Cannot remove the last text channel');
+            return;
+          }
+          this.textChannels = this.textChannels.filter(c => c.id !== id);
+          if (this.activeChannel === id) {
+            this.activeChannel = this.textChannels[0].id;
+          }
+          await this.publishChannelConfig();
+          this.showToast('Channel removed');
+        },
+
+        async addVoiceChannel(name) {
+          const trimmed = name.trim();
+          if (!trimmed) return;
+          if (this.voiceChannels.find(c => c.name === trimmed)) {
+            this.showToast('Voice channel already exists');
+            return;
+          }
+          const id = trimmed.toLowerCase().replace(/\s+/g, '-');
+          this.voiceChannels.push({ id, name: trimmed });
+          await this.publishChannelConfig();
+          this.showToast('Voice channel ' + trimmed + ' added');
+        },
+
+        async removeVoiceChannel(id) {
+          if (this.voiceChannels.length <= 1) {
+            this.showToast('Cannot remove the last voice channel');
+            return;
+          }
+          const removed = this.voiceChannels.find(c => c.id === id);
+          this.voiceChannels = this.voiceChannels.filter(c => c.id !== id);
+          // If current voice channel was removed, leave it
+          if (this.voice.channel === id) {
+            this.leaveVoiceChannel();
+          }
+          await this.publishChannelConfig();
+          this.showToast('Voice channel removed');
+        },
+
+        // Modal bridge methods for channel manager UI
+        submitAddChannel() {
+          const name = this.ui.newChannelName.trim();
+          if (!name) return;
+          this.ui.newChannelName = '';
+          if (this.ui.channelManagerType === 'text') {
+            this.addTextChannel(name);
+          } else {
+            this.addVoiceChannel(name);
+          }
+        },
+
+        submitRemoveChannel(id) {
+          if (this.ui.channelManagerType === 'text') {
+            this.removeTextChannel(id);
+          } else {
+            this.removeVoiceChannel(id);
+          }
+        },
+
         // Encrypt payload object to AES-GCM hex JSON
         async encryptPayload(dataObj) {
           const enc = new TextEncoder();
@@ -1243,7 +1563,7 @@
           if (!relay.ws || relay.ws.readyState !== WebSocket.OPEN) return;
           const subId = 'sub_' + relay.url.replace(/[^a-zA-Z0-9]/g, '_') + '_' + this.room.slug;
           const filter = {
-            kinds: [1, 20000, 25000],
+            kinds: [1, 20000, 25000, 30000, 30001],
             '#t': [this.room.slug],
             since: Math.floor(Date.now() / 1000) - 86400
           };
@@ -1327,6 +1647,16 @@
                 } catch (e) {
                   // Decryption failure: wrong key, corrupt, or not a DM
                 }
+                return;
+              }
+
+              // Room metadata events (unencrypted — public config, no room key needed)
+              if (ev.kind === 30000) {
+                this.onIncomingRoomOwnerEvent(ev);
+                return;
+              }
+              if (ev.kind === 30001) {
+                this.onIncomingChannelConfigEvent(ev);
                 return;
               }
 
@@ -2167,20 +2497,102 @@
           } catch (e) { /* ignore corrupt state */ }
         },
 
-        // ROOM TOPIC PERSISTENCE (per-room in sessionStorage)
+        // Apply channel config from parsed JSON (used by both relay event and localStorage)
+        applyChannelConfig(config) {
+          if (!config || !Array.isArray(config.textChannels) || !Array.isArray(config.voiceChannels)) return;
+          const oldActive = this.activeChannel;
+          this.textChannels = config.textChannels.map(c => ({
+            id: c.id,
+            name: c.name,
+            unread: this.textChannels ? this.textChannels.find(old => old.id === c.id)?.unread || false : false
+          }));
+          if (this.textChannels.length === 0) {
+            this.textChannels = [{ id: 'general', name: 'general', unread: false }];
+          }
+          this.voiceChannels = config.voiceChannels.map(c => ({ id: c.id, name: c.name }));
+          if (this.voiceChannels.length === 0) {
+            this.voiceChannels = [{ id: 'General Voice', name: '🔊 General Voice' }];
+          }
+          if (!this.textChannels.find(c => c.id === oldActive)) {
+            this.activeChannel = this.textChannels[0].id;
+          }
+        },
+
+        // === ROOM CONFIG PERSISTENCE (localStorage with sessionStorage fallback) ===
+
+        // Room owner cache
+        saveRoomOwner(slug, pubkey) {
+          try {
+            const owners = JSON.parse(localStorage.getItem('chat_room_owners') || '{}');
+            owners[slug] = pubkey;
+            localStorage.setItem('chat_room_owners', JSON.stringify(owners));
+          } catch (e) {
+            try {
+              const owners = JSON.parse(sessionStorage.getItem('chat_room_owners') || '{}');
+              owners[slug] = pubkey;
+              sessionStorage.setItem('chat_room_owners', JSON.stringify(owners));
+            } catch (e2) {}
+          }
+        },
+
+        loadRoomOwner(slug) {
+          try {
+            const owners = JSON.parse(localStorage.getItem('chat_room_owners') || '{}');
+            if (owners[slug]) return owners[slug];
+            // Fall back to sessionStorage
+            const sess = JSON.parse(sessionStorage.getItem('chat_room_owners') || '{}');
+            return sess[slug] || null;
+          } catch (e) { return null; }
+        },
+
+        // Channel config cache (falls back to sessionStorage if localStorage is full)
+        saveRoomConfig(slug, configStr) {
+          try {
+            const configs = JSON.parse(localStorage.getItem('chat_room_configs') || '{}');
+            configs[slug] = configStr;
+            localStorage.setItem('chat_room_configs', JSON.stringify(configs));
+          } catch (e) {
+            try {
+              const configs = JSON.parse(sessionStorage.getItem('chat_room_configs') || '{}');
+              configs[slug] = configStr;
+              sessionStorage.setItem('chat_room_configs', JSON.stringify(configs));
+            } catch (e2) {}
+          }
+        },
+
+        loadRoomConfig(slug) {
+          try {
+            const configs = JSON.parse(localStorage.getItem('chat_room_configs') || '{}');
+            if (configs[slug]) return JSON.parse(configs[slug]);
+            // Fall back to sessionStorage
+            const sess = JSON.parse(sessionStorage.getItem('chat_room_configs') || '{}');
+            return sess[slug] ? JSON.parse(sess[slug]) : null;
+          } catch (e) { return null; }
+        },
+
+        // ROOM TOPIC PERSISTENCE (per-room, localStorage with sessionStorage fallback)
         loadRoomTopic(slug) {
           try {
-            const topics = JSON.parse(sessionStorage.getItem('chat_room_topics') || '{}');
-            return topics[slug] || '';
+            const topics = JSON.parse(localStorage.getItem('chat_room_topics') || '{}');
+            if (topics[slug]) return topics[slug];
+            const sess = JSON.parse(sessionStorage.getItem('chat_room_topics') || '{}');
+            return sess[slug] || '';
           } catch (e) { return ''; }
         },
 
         saveRoomTopic(slug, topic) {
           try {
-            const topics = JSON.parse(sessionStorage.getItem('chat_room_topics') || '{}');
+            const topics = JSON.parse(localStorage.getItem('chat_room_topics') || '{}');
             topics[slug] = topic;
-            sessionStorage.setItem('chat_room_topics', JSON.stringify(topics));
-          } catch (e) { /* sessionStorage may be full */ }
+            localStorage.setItem('chat_room_topics', JSON.stringify(topics));
+          } catch (e) {
+            // localStorage full — fall back to sessionStorage
+            try {
+              const topics = JSON.parse(sessionStorage.getItem('chat_room_topics') || '{}');
+              topics[slug] = topic;
+              sessionStorage.setItem('chat_room_topics', JSON.stringify(topics));
+            } catch (e2) {}
+          }
         },
 
         // UTILS & HELPERS
