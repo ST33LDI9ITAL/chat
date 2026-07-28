@@ -98,7 +98,7 @@
         <i data-lucide="message-square" class="w-6 h-6"></i>
         <!-- Tooltip -->
         <span class="absolute left-16 px-2.5 py-1 bg-black text-white text-xs font-semibold rounded shadow-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none">
-          Personal Room (#<span x-text="personalRoomSlug.substring(0,6)"></span>)
+          Personal Room (#<span x-text="personalRoomSlug.substring(0,12)"></span>…)
         </span>
       </button>
 
@@ -143,7 +143,7 @@
         <div class="flex items-center space-x-2 truncate">
           <i data-lucide="lock" class="w-4 h-4 text-app-green" x-show="room.pass"></i>
           <i data-lucide="globe" class="w-4 h-4 text-gray-400" x-show="!room.pass"></i>
-          <span class="truncate text-sm" x-text="'#' + room.slug"></span>
+          <span class="truncate text-sm" x-text="room.displayName || '#' + room.slug"></span>
           <!-- Owner badge -->
           <span x-show="room.ownerPubkey === user.pk" class="text-[10px] text-yellow-400 font-bold" title="Room Owner">👑</span>
           <span x-show="room.ownerPubkey && room.ownerPubkey !== user.pk" class="text-[10px] text-gray-500" title="Owned by another user">👑</span>
@@ -371,7 +371,7 @@
             </div>
             <h2 class="text-2xl font-bold text-white" x-text="'Welcome to #' + activeChannel + '!'"></h2>
             <p class="text-xs text-gray-400 mt-1">
-              This is the start of the <span x-text="'#' + activeChannel"></span> channel in room <strong class="text-app-accent" x-text="'#' + room.slug"></strong>.
+              This is the start of the <span x-text="'#' + activeChannel"></span> channel in room <strong class="text-app-accent" x-text="room.displayName || '#' + room.slug"></strong>.
             </p>
           </div>
         </template>
@@ -849,6 +849,7 @@
           pass: '',
           key: null,
           topic: '', // channel topic, set via /topic command
+          displayName: '', // human-readable room name (set by owner, separate from slug)
           ownerPubkey: null, // pubkey of the room owner (discovered or claimed)
           ownerDiscovered: false, // true once owner is resolved
           ownerClaimTimer: null // setTimeout handle for delayed ownership claim
@@ -1020,6 +1021,7 @@
           this.parseHashRoom();
           await this.updateRoomCryptoKey();
           this.loadDMState();
+          this.room.displayName = this.loadRoomDisplayName(this.room.slug);
 
           // Initialize room ownership for the initial room
           this.room.ownerPubkey = this.loadRoomOwner(this.room.slug);
@@ -1089,9 +1091,9 @@
           this.user.name = 'Peer_' + this.user.pubkeyTruncated;
           // Avatar is set by applyAvatarSource() in initApp after identity is ready
 
-          // Personal room slug based on sha256 of pubkey
+          // Personal room slug based on sha256 of pubkey (16 hex chars = 64 bits)
           const pubHash = await this.sha256Hex(this.user.pk);
-          this.personalRoomSlug = pubHash.substring(0, 8);
+          this.personalRoomSlug = pubHash.substring(0, 16);
         },
 
         saveProfile() {
@@ -1159,8 +1161,9 @@
             this.room.ownerClaimTimer = null;
           }
 
-          // Load cached topic and channel config
+          // Load cached topic, display name, and channel config
           this.room.topic = this.loadRoomTopic(newSlug);
+          this.room.displayName = this.loadRoomDisplayName(newSlug);
           const cachedConfig = this.loadRoomConfig(newSlug);
           if (cachedConfig) {
             this.applyChannelConfig(cachedConfig);
@@ -1862,7 +1865,7 @@
 
           switch (cmd) {
             case 'help':
-              this.showToast('/help, /me <action>, /w <user> <msg>, /nick <name>, /clear, /join <slug> [pass], /relay, /dm <user>, /topic <text>');
+              this.showToast('/help, /me <action>, /w <user> <msg>, /nick <name>, /clear, /join <slug> [pass], /relay, /dm <user>, /topic <text>, /rename <name>');
               break;
 
             case 'me':
@@ -1911,6 +1914,20 @@
               this.room.topic = args.join(' ');
               this.saveRoomTopic(this.room.slug, this.room.topic);
               this.showToast('Topic set');
+              break;
+
+            case 'rename':
+              if (this.room.ownerPubkey !== this.user.pk) {
+                this.showToast('Only the room owner can rename the room');
+                return;
+              }
+              if (!args.length) {
+                this.showToast('Current name: ' + (this.room.displayName || this.room.slug));
+                return;
+              }
+              this.room.displayName = args.join(' ');
+              this.saveRoomDisplayName(this.room.slug, this.room.displayName);
+              this.showToast('Room renamed to "' + this.room.displayName + '"');
               break;
 
             default:
@@ -2762,6 +2779,30 @@
               const topics = JSON.parse(sessionStorage.getItem('chat_room_topics') || '{}');
               topics[slug] = topic;
               sessionStorage.setItem('chat_room_topics', JSON.stringify(topics));
+            } catch (e2) {}
+          }
+        },
+
+        // Room display name persistence (localStorage with sessionStorage fallback)
+        loadRoomDisplayName(slug) {
+          try {
+            const names = JSON.parse(localStorage.getItem('chat_room_names') || '{}');
+            if (names[slug]) return names[slug];
+            const sess = JSON.parse(sessionStorage.getItem('chat_room_names') || '{}');
+            return sess[slug] || '';
+          } catch (e) { return ''; }
+        },
+
+        saveRoomDisplayName(slug, name) {
+          try {
+            const names = JSON.parse(localStorage.getItem('chat_room_names') || '{}');
+            names[slug] = name;
+            localStorage.setItem('chat_room_names', JSON.stringify(names));
+          } catch (e) {
+            try {
+              const names = JSON.parse(sessionStorage.getItem('chat_room_names') || '{}');
+              names[slug] = name;
+              sessionStorage.setItem('chat_room_names', JSON.stringify(names));
             } catch (e2) {}
           }
         },
