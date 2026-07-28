@@ -452,6 +452,14 @@
                     <button @click="quoteReply(msg)" class="p-1 text-gray-400 hover:text-white rounded" title="Reply"><i data-lucide="reply" class="w-3.5 h-3.5"></i></button>
                     <button @click="addReaction(msg, '👍')" class="p-1 text-gray-400 hover:text-white rounded" title="Thumbs Up">👍</button>
                     <button @click="addReaction(msg, '❤️')" class="p-1 text-gray-400 hover:text-white rounded" title="Heart">❤️</button>
+                    <!-- Reaction emoji picker -->
+                    <div class="relative">
+                      <button @click="toggleReactionPicker(msg)" class="p-1 text-gray-400 hover:text-yellow-400 rounded" title="Add reaction"><i data-lucide="smile-plus" class="w-3.5 h-3.5"></i></button>
+                      <div x-show="ui.reactionTarget === msg.id" @click.outside="ui.reactionTarget = null"
+                           class="absolute right-0 bottom-8 z-50 shadow-2xl rounded-lg overflow-hidden border border-gray-700">
+                        <emoji-picker @emoji-click="onReactionSelect($event)" style="height:260px;width:240px;"></emoji-picker>
+                      </div>
+                    </div>
                   </div>
                   <template x-if="msg.reactions && Object.keys(msg.reactions).length > 0">
                     <div class="flex flex-wrap gap-1 mt-1.5">
@@ -929,7 +937,8 @@
           channelManagerType: 'text', // 'text' or 'voice'
           newChannelName: '',
           avatarSource: 'identicon', // 'dicebear' | 'initials' | 'identicon' | 'custom'
-          customAvatarUrl: ''
+          customAvatarUrl: '',
+          reactionTarget: null // msg.id of the message being reacted to, or null
         },
 
         // TURN / ICE Config: ExpressTURN (Primary), Public Metered & ProcessOne Fallbacks
@@ -2059,6 +2068,35 @@
         addReaction(msg, emoji) {
           if (!msg.reactions[emoji]) msg.reactions[emoji] = 0;
           msg.reactions[emoji]++;
+        },
+
+        // Toggle reaction emoji picker for a specific message
+        toggleReactionPicker(msg) {
+          if (this.ui.reactionTarget === msg.id) {
+            this.ui.reactionTarget = null;
+          } else {
+            this.ui.reactionTarget = msg.id;
+          }
+        },
+
+        // Handle emoji selection from the reaction picker
+        onReactionSelect(event) {
+          if (event.detail && event.detail.unicode) {
+            // Find the target message by id
+            const target = this.messages.find(m => m.id === this.ui.reactionTarget);
+            if (target) {
+              this.addReaction(target, event.detail.unicode);
+            }
+            // Also check DM messages
+            for (const pubkey of Object.keys(this.dmMessages)) {
+              const found = this.dmMessages[pubkey].find(m => m.id === this.ui.reactionTarget);
+              if (found) {
+                this.addReaction(found, event.detail.unicode);
+                break;
+              }
+            }
+          }
+          this.ui.reactionTarget = null;
         },
 
         onEmojiSelect(event) {
