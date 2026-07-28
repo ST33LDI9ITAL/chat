@@ -401,17 +401,19 @@
               </div>
             </template>
 
-            <!-- Message Cards -->
+            <!-- Message Cards: single root element per x-for item, use x-if to choose variant -->
             <template x-for="msg in filteredMessages" :key="msg.id">
-              <!-- Action messages (/me style): compact line without avatar -->
-              <div x-show="msg.isAction"
-                   class="px-4 py-1 italic text-sm text-gray-300 leading-relaxed">
-                <span class="font-semibold text-gray-100" x-text="msg.author"></span>
-                <span x-html="msg.sanitizedHtml"></span>
-              </div>
-              <!-- Normal messages: full card with avatar -->
-              <div x-show="!msg.isAction"
-                   class="group flex space-x-3 hover:bg-[#2e3035]/40 -mx-4 px-4 py-1.5 rounded transition-colors relative">
+              <div>
+                <template x-if="msg.isAction">
+                  <!-- Action messages (/me style): compact line without avatar -->
+                  <div class="px-4 py-1 italic text-sm text-gray-300 leading-relaxed">
+                    <span class="font-semibold text-gray-100" x-text="msg.author"></span>
+                    <span x-html="msg.sanitizedHtml"></span>
+                  </div>
+                </template>
+                <template x-if="!msg.isAction">
+                  <!-- Normal messages: full card with avatar -->
+                  <div class="group flex space-x-3 hover:bg-[#2e3035]/40 -mx-4 px-4 py-1.5 rounded transition-colors relative">
                 <img :src="msg.avatar" class="w-10 h-10 rounded-full bg-gray-700 shrink-0 mt-0.5" />
                 <div class="flex-1 min-w-0">
                   <div class="flex items-baseline space-x-2">
@@ -462,6 +464,7 @@
                     </div>
                   </template>
                 </div>
+                </template>
               </div>
             </template>
           </div>
