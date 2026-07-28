@@ -1078,8 +1078,10 @@
 
         saveProfile() {
           if (!this.user.name.trim()) this.user.name = 'Peer_' + this.user.pubkeyTruncated;
-          // Re-apply avatar source (initials mode depends on name)
-          this.applyAvatarSource();
+          // If using initials mode, refresh the avatar to match the new name
+          if (this.ui.avatarSource === 'initials') {
+            this.user.avatar = 'https://ui-avatars.com/api/?name=' + encodeURIComponent(this.user.name) + '&background=5865f2&color=fff&size=128&bold=true';
+          }
           this.broadcastPresence();
         },
 
@@ -2768,7 +2770,7 @@
               }
               break;
           }
-          this.saveProfile();
+          this.broadcastPresence();
           // Persist avatar source selection
           try { sessionStorage.setItem('chat_avatar_source', source); } catch (e) {}
           try { sessionStorage.setItem('chat_avatar_custom', this.ui.customAvatarUrl || ''); } catch (e) {}
