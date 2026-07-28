@@ -160,13 +160,33 @@
             <i data-lucide="hash" class="w-3.5 h-3.5"></i>
           </div>
           <template x-for="ch in textChannels" :key="ch.id">
-            <button @click="activeChannel = ch.id"
+            <button @click="activeChannel = ch.id; activeDM = null"
                     class="w-full flex items-center px-2 py-1.5 rounded text-sm font-medium transition-colors"
-                    :class="activeChannel === ch.id ? 'bg-app-activeBg text-white' : 'text-gray-400 hover:bg-app-hoverBg hover:text-gray-200'">
+                    :class="activeChannel === ch.id && !activeDM ? 'bg-app-activeBg text-white' : 'text-gray-400 hover:bg-app-hoverBg hover:text-gray-200'">
               <span class="text-gray-400 text-base mr-2">#</span>
               <span x-text="ch.name" class="truncate"></span>
               <span x-show="ch.unread" class="ml-auto w-2 h-2 rounded-full bg-app-accent"></span>
             </button>
+          </template>
+        </div>
+
+        <!-- Direct Messages Section -->
+        <div>
+          <div class="px-2 text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center justify-between mb-1">
+            <span>Direct Messages</span>
+            <i data-lucide="message-circle" class="w-3.5 h-3.5"></i>
+          </div>
+          <template x-for="dm in dmChannels" :key="dm.pubkey">
+            <button @click="openDM(dm.pubkey)"
+                    class="w-full flex items-center px-2 py-1.5 rounded text-sm font-medium transition-colors"
+                    :class="activeDM === dm.pubkey ? 'bg-app-activeBg text-white' : 'text-gray-400 hover:bg-app-hoverBg hover:text-gray-200'">
+              <img :src="dm.avatar" class="w-5 h-5 rounded-full mr-2 shrink-0" />
+              <span x-text="dm.name" class="truncate"></span>
+              <span x-show="dm.unread" class="ml-auto w-2 h-2 rounded-full bg-app-accent shrink-0"></span>
+            </button>
+          </template>
+          <template x-if="dmChannels.length === 0">
+            <div class="px-2 py-1 text-[11px] text-gray-500 italic">No DM conversations yet</div>
           </template>
         </div>
 
@@ -284,14 +304,27 @@
 
       <!-- Top Channel Bar -->
       <div class="h-12 border-b border-[#1e1f22] px-4 flex items-center justify-between shadow-sm bg-app-channelBg z-10">
-        <div class="flex items-center space-x-3 min-w-0">
-          <span class="text-gray-400 text-xl font-bold">#</span>
-          <span class="font-bold text-white text-base truncate" x-text="activeChannel"></span>
-          <div class="h-4 w-[1px] bg-gray-700"></div>
-          <span class="text-xs text-gray-400 truncate hidden sm:inline" x-text="room.pass ? '🔒 Zero-Trust AES-256 Encrypted Channel' : '🌐 Public Nostr Room Channel'"></span>
-        </div>
+        <!-- Room channel header -->
+        <template x-if="!activeDM">
+          <div class="flex items-center space-x-3 min-w-0">
+            <span class="text-gray-400 text-xl font-bold">#</span>
+            <span class="font-bold text-white text-base truncate" x-text="activeChannel"></span>
+            <div class="h-4 w-[1px] bg-gray-700"></div>
+            <span class="text-xs text-gray-400 truncate hidden sm:inline"
+                  x-text="room.topic ? '📌 ' + room.topic : (room.pass ? '🔒 AES-256 Encrypted' : '🌐 Public Channel')"></span>
+          </div>
+        </template>
+        <!-- DM header -->
+        <template x-if="activeDM">
+          <div class="flex items-center space-x-3 min-w-0">
+            <i data-lucide="message-circle" class="w-5 h-5 text-app-accent shrink-0"></i>
+            <span class="font-bold text-white text-base truncate" x-text="getDMChannelName(activeDM)"></span>
+            <div class="h-4 w-[1px] bg-gray-700"></div>
+            <span class="text-xs text-app-accent truncate hidden sm:inline">🔒 NIP-04 ECDH Encrypted</span>
+          </div>
+        </template>
 
-        <!-- Search Bar -->
+        <!-- Search Bar (only in room mode) -->
         <div class="relative w-48 sm:w-64">
           <input type="text" x-model="ui.search" placeholder="Search messages..." 
                  class="w-full bg-[#1e1f22] text-xs text-gray-200 placeholder-gray-500 pl-8 pr-3 py-1.5 rounded focus:outline-none focus:ring-1 focus:ring-app-accent" />
@@ -302,110 +335,145 @@
       <!-- Messages Scroll Container -->
       <div id="messageFeed" class="flex-1 overflow-y-auto p-4 space-y-4">
         
-        <!-- Welcome Banner -->
-        <div class="border-b border-gray-700/50 pb-4 mb-4">
-          <div class="w-12 h-12 rounded-full bg-app-accent/20 flex items-center justify-center text-app-accent mb-2">
-            <i data-lucide="hash" class="w-7 h-7"></i>
-          </div>
-          <h2 class="text-2xl font-bold text-white" x-text="'Welcome to #' + activeChannel + '!'"></h2>
-          <p class="text-xs text-gray-400 mt-1">
-            This is the start of the <span x-text="'#' + activeChannel"></span> channel in room <strong class="text-app-accent" x-text="'#' + room.slug"></strong>.
-          </p>
-        </div>
-
-        <!-- Empty State -->
-        <template x-if="filteredMessages.length === 0">
-          <div class="text-center py-12 text-gray-500 text-xs">
-            No messages yet. Send a message to start the conversation!
+        <!-- Room Channel Welcome -->
+        <template x-if="!activeDM">
+          <div class="border-b border-gray-700/50 pb-4 mb-4">
+            <div class="w-12 h-12 rounded-full bg-app-accent/20 flex items-center justify-center text-app-accent mb-2">
+              <i data-lucide="hash" class="w-7 h-7"></i>
+            </div>
+            <h2 class="text-2xl font-bold text-white" x-text="'Welcome to #' + activeChannel + '!'"></h2>
+            <p class="text-xs text-gray-400 mt-1">
+              This is the start of the <span x-text="'#' + activeChannel"></span> channel in room <strong class="text-app-accent" x-text="'#' + room.slug"></strong>.
+            </p>
           </div>
         </template>
 
-        <!-- Message Cards -->
-        <template x-for="msg in filteredMessages" :key="msg.id">
-          <div class="group flex space-x-3 hover:bg-[#2e3035]/40 -mx-4 px-4 py-1.5 rounded transition-colors relative">
-            
-            <!-- User Avatar -->
-            <img :src="msg.avatar" class="w-10 h-10 rounded-full bg-gray-700 shrink-0 mt-0.5" />
-            
-            <div class="flex-1 min-w-0">
-              <!-- Header: Author Name, Pubkey Badge & Timestamp -->
-              <div class="flex items-baseline space-x-2">
-                <span class="font-semibold text-sm text-gray-100 hover:underline cursor-pointer" 
-                      x-text="msg.author" @click="quoteReply(msg)"></span>
-                <span class="text-[10px] text-gray-400 font-mono" x-text="'[' + msg.pubkey.substring(0, 8) + ']'"></span>
-                <span class="text-[10px] text-gray-500" x-text="formatTime(msg.timestamp)"></span>
+        <!-- DM Welcome -->
+        <template x-if="activeDM">
+          <div class="border-b border-gray-700/50 pb-4 mb-4">
+            <div class="w-12 h-12 rounded-full bg-app-accent/20 flex items-center justify-center text-app-accent mb-2">
+              <i data-lucide="message-circle" class="w-7 h-7"></i>
+            </div>
+            <h2 class="text-2xl font-bold text-white">
+              DM with <span x-text="getDMChannelName(activeDM)"></span>
+            </h2>
+            <p class="text-xs text-gray-400 mt-1">
+              🔒 Private encrypted conversation via NIP-04 (ECDH + AES-256-CBC).
+            </p>
+          </div>
+        </template>
+
+        <!-- Room Messages -->
+        <template x-if="!activeDM">
+          <div>
+            <!-- Empty State -->
+            <template x-if="filteredMessages.length === 0">
+              <div class="text-center py-12 text-gray-500 text-xs">
+                No messages yet. Send a message to start the conversation!
               </div>
+            </template>
 
-              <!-- Reply Quote Preview (if replying) -->
-              <template x-if="msg.replyTo">
-                <div class="flex items-center space-x-2 text-xs text-gray-400 bg-[#2b2d31]/60 px-2 py-1 rounded my-1 border-l-2 border-app-accent">
-                  <i data-lucide="corner-down-right" class="w-3 h-3 text-app-accent"></i>
-                  <span class="font-semibold" x-text="msg.replyTo.author + ':'"></span>
-                  <span class="truncate" x-text="msg.replyTo.snippet"></span>
-                </div>
-              </template>
-
-              <!-- Sanitized Text Content -->
-              <div class="text-sm text-gray-200 break-words leading-relaxed mt-0.5" x-html="msg.sanitizedHtml"></div>
-
-              <!-- Rich Media Embeds -->
-              <template x-if="msg.embeds && msg.embeds.length > 0">
-                <div class="mt-2 space-y-2 max-w-lg">
-                  <template x-for="embed in msg.embeds" :key="embed.url">
-                    <div>
-                      <!-- YouTube Embed -->
-                      <template x-if="embed.type === 'youtube'">
-                        <div class="aspect-video w-full rounded-lg overflow-hidden border border-gray-800 bg-black">
-                          <iframe :src="'https://www.youtube-nocookie.com/embed/' + embed.id" 
-                                  class="w-full h-full" frameborder="0" allowfullscreen></iframe>
+            <!-- Message Cards -->
+            <template x-for="msg in filteredMessages" :key="msg.id">
+              <!-- Action messages (/me style): compact line without avatar -->
+              <div x-show="msg.isAction"
+                   class="px-4 py-1 italic text-sm text-gray-300 leading-relaxed">
+                <span class="font-semibold text-gray-100" x-text="msg.author"></span>
+                <span x-html="msg.sanitizedHtml"></span>
+              </div>
+              <!-- Normal messages: full card with avatar -->
+              <div x-show="!msg.isAction"
+                   class="group flex space-x-3 hover:bg-[#2e3035]/40 -mx-4 px-4 py-1.5 rounded transition-colors relative">
+                <img :src="msg.avatar" class="w-10 h-10 rounded-full bg-gray-700 shrink-0 mt-0.5" />
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-baseline space-x-2">
+                    <span class="font-semibold text-sm text-gray-100 hover:underline cursor-pointer" x-text="msg.author" @click="quoteReply(msg)"></span>
+                    <span class="text-[10px] text-gray-400 font-mono" x-text="'[' + msg.pubkey.substring(0, 8) + ']'"></span>
+                    <span class="text-[10px] text-gray-500" x-text="formatTime(msg.timestamp)"></span>
+                  </div>
+                  <template x-if="msg.replyTo">
+                    <div class="flex items-center space-x-2 text-xs text-gray-400 bg-[#2b2d31]/60 px-2 py-1 rounded my-1 border-l-2 border-app-accent">
+                      <i data-lucide="corner-down-right" class="w-3 h-3 text-app-accent"></i>
+                      <span class="font-semibold" x-text="msg.replyTo.author + ':'"></span>
+                      <span class="truncate" x-text="msg.replyTo.snippet"></span>
+                    </div>
+                  </template>
+                  <div class="text-sm text-gray-200 break-words leading-relaxed mt-0.5" x-html="msg.sanitizedHtml"></div>
+                  <template x-if="msg.embeds && msg.embeds.length > 0">
+                    <div class="mt-2 space-y-2 max-w-lg">
+                      <template x-for="embed in msg.embeds" :key="embed.url">
+                        <div>
+                          <template x-if="embed.type === 'youtube'">
+                            <div class="aspect-video w-full rounded-lg overflow-hidden border border-gray-800 bg-black">
+                              <iframe :src="'https://www.youtube-nocookie.com/embed/' + embed.id" class="w-full h-full" frameborder="0" allowfullscreen></iframe>
+                            </div>
+                          </template>
+                          <template x-if="embed.type === 'image'">
+                            <img :src="embed.url" @click="openMediaModal(embed.url, 'image')" class="max-h-72 rounded-lg border border-gray-800 hover:opacity-95 transition cursor-pointer object-cover" />
+                          </template>
+                          <template x-if="embed.type === 'video'">
+                            <video controls class="max-h-72 w-full rounded-lg border border-gray-800 bg-black"><source :src="embed.url" /></video>
+                          </template>
                         </div>
                       </template>
-
-                      <!-- Direct Image / GIF Embed -->
-                      <template x-if="embed.type === 'image'">
-                        <img :src="embed.url" 
-                             @click="openMediaModal(embed.url, 'image')"
-                             class="max-h-72 rounded-lg border border-gray-800 hover:opacity-95 transition cursor-pointer object-cover" />
-                      </template>
-
-                      <!-- MP4 / WebM Video Embed -->
-                      <template x-if="embed.type === 'video'">
-                        <video controls class="max-h-72 w-full rounded-lg border border-gray-800 bg-black">
-                          <source :src="embed.url" />
-                        </video>
+                    </div>
+                  </template>
+                  <div class="absolute right-4 top-2 hidden group-hover:flex items-center space-x-1 bg-[#2b2d31] border border-gray-700/50 rounded px-1 py-0.5 shadow-md">
+                    <button @click="quoteReply(msg)" class="p-1 text-gray-400 hover:text-white rounded" title="Reply"><i data-lucide="reply" class="w-3.5 h-3.5"></i></button>
+                    <button @click="addReaction(msg, '👍')" class="p-1 text-gray-400 hover:text-white rounded" title="Thumbs Up">👍</button>
+                    <button @click="addReaction(msg, '❤️')" class="p-1 text-gray-400 hover:text-white rounded" title="Heart">❤️</button>
+                  </div>
+                  <template x-if="msg.reactions && Object.keys(msg.reactions).length > 0">
+                    <div class="flex flex-wrap gap-1 mt-1.5">
+                      <template x-for="(count, emoji) in msg.reactions" :key="emoji">
+                        <button @click="addReaction(msg, emoji)" class="flex items-center space-x-1 text-xs px-2 py-0.5 rounded bg-[#2b2d31] border border-gray-700/40 text-gray-300 hover:bg-[#35373c]">
+                          <span x-text="emoji"></span>
+                          <span x-text="count" class="font-bold text-[10px]"></span>
+                        </button>
                       </template>
                     </div>
                   </template>
                 </div>
-              </template>
-
-              <!-- Message Action Hover Buttons -->
-              <div class="absolute right-4 top-2 hidden group-hover:flex items-center space-x-1 bg-[#2b2d31] border border-gray-700/50 rounded px-1 py-0.5 shadow-md">
-                <button @click="quoteReply(msg)" class="p-1 text-gray-400 hover:text-white rounded" title="Reply">
-                  <i data-lucide="reply" class="w-3.5 h-3.5"></i>
-                </button>
-                <button @click="addReaction(msg, '👍')" class="p-1 text-gray-400 hover:text-white rounded" title="Thumbs Up">
-                  👍
-                </button>
-                <button @click="addReaction(msg, '❤️')" class="p-1 text-gray-400 hover:text-white rounded" title="Heart">
-                  ❤️
-                </button>
               </div>
+            </template>
+          </div>
+        </template>
 
-              <!-- Reactions List -->
-              <template x-if="msg.reactions && Object.keys(msg.reactions).length > 0">
-                <div class="flex flex-wrap gap-1 mt-1.5">
-                  <template x-for="(count, emoji) in msg.reactions" :key="emoji">
-                    <button @click="addReaction(msg, emoji)" 
-                            class="flex items-center space-x-1 text-xs px-2 py-0.5 rounded bg-[#2b2d31] border border-gray-700/40 text-gray-300 hover:bg-[#35373c]">
-                      <span x-text="emoji"></span>
-                      <span x-text="count" class="font-bold text-[10px]"></span>
-                    </button>
+        <!-- DM Messages -->
+        <template x-if="activeDM">
+          <div>
+            <template x-if="!dmMessages[activeDM] || dmMessages[activeDM].length === 0">
+              <div class="text-center py-12 text-gray-500 text-xs">
+                No messages yet. Send a message to start the conversation!
+              </div>
+            </template>
+            <template x-for="msg in (dmMessages[activeDM] || [])" :key="msg.id">
+              <div class="group flex space-x-3 hover:bg-[#2e3035]/40 -mx-4 px-4 py-1.5 rounded transition-colors relative">
+                <img :src="msg.avatar" class="w-10 h-10 rounded-full bg-gray-700 shrink-0 mt-0.5" />
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-baseline space-x-2">
+                    <span class="font-semibold text-sm text-gray-100" x-text="msg.author"></span>
+                    <span class="text-[10px] text-gray-400 font-mono" x-text="'[' + msg.pubkey.substring(0, 8) + ']'"></span>
+                    <span class="text-[10px] text-gray-500" x-text="formatTime(msg.timestamp)"></span>
+                  </div>
+                  <div class="text-sm text-gray-200 break-words leading-relaxed mt-0.5" x-html="msg.sanitizedHtml"></div>
+                  <template x-if="msg.embeds && msg.embeds.length > 0">
+                    <div class="mt-2 space-y-2 max-w-lg">
+                      <template x-for="embed in msg.embeds" :key="embed.url">
+                        <div>
+                          <template x-if="embed.type === 'image'">
+                            <img :src="embed.url" @click="openMediaModal(embed.url, 'image')" class="max-h-72 rounded-lg border border-gray-800 cursor-pointer" />
+                          </template>
+                          <template x-if="embed.type === 'video'">
+                            <video controls class="max-h-72 w-full rounded-lg border border-gray-800 bg-black"><source :src="embed.url" /></video>
+                          </template>
+                        </div>
+                      </template>
+                    </div>
                   </template>
                 </div>
-              </template>
-
-            </div>
+              </div>
+            </template>
           </div>
         </template>
       </div>
@@ -425,14 +493,31 @@
       <div class="p-4 bg-app-channelBg">
         <div class="bg-[#383a40] rounded-lg p-2.5 flex items-center space-x-3 shadow-inner border border-gray-700/30 relative">
           
+          <!-- @mention Autocomplete Dropdown -->
+          <div x-show="mentionState.show" class="absolute bottom-full left-0 mb-2 w-72 max-h-40 overflow-y-auto bg-[#2b2d31] border border-gray-700 rounded-lg shadow-xl z-50" @click.outside="mentionState.show = false">
+            <template x-for="(peer, idx) in mentionCandidates" :key="peer.pubkey">
+              <div @mousedown.prevent="selectMention(peer)"
+                   class="flex items-center space-x-2 px-3 py-2 cursor-pointer text-xs"
+                   :class="idx === mentionState.selectedIndex ? 'bg-app-hoverBg text-white' : 'text-gray-300 hover:bg-app-hoverBg'">
+                <img :src="peer.avatar" class="w-6 h-6 rounded-full shrink-0" />
+                <span x-text="peer.name" class="font-semibold truncate"></span>
+                <span class="text-gray-500 font-mono shrink-0" x-text="'[' + peer.pubkey.substring(0,6) + ']'"></span>
+              </div>
+            </template>
+          </div>
+
           <!-- Add Attachment / Link helper -->
           <button @click="promptMediaUrl()" class="text-gray-400 hover:text-white transition" title="Embed Media Link">
             <i data-lucide="plus-circle" class="w-5 h-5"></i>
           </button>
 
           <!-- Input Textarea -->
-          <input type="text" x-model="newMessageText" @keydown.enter.prevent="sendMessage()" 
-                 :placeholder="'Message #' + activeChannel + '...'"
+          <input type="text" x-model="newMessageText"
+                 @keydown.enter.prevent="sendMessage()"
+                 @input="onMentionInput($event)"
+                 @keydown="onMentionKeydown($event)"
+                 @blur="onMentionBlur()"
+                 :placeholder="activeDM ? 'Message ' + getDMChannelName(activeDM) + '...' : 'Message #' + activeChannel + '...'"
                  class="w-full bg-transparent text-sm text-gray-100 placeholder-gray-500 focus:outline-none" />
 
           <!-- Emoji Picker Toggle -->
@@ -489,7 +574,7 @@
 
             <!-- Remote Peers -->
             <template x-for="peer in activePeerList" :key="peer.pubkey">
-              <div class="flex flex-col p-1.5 rounded hover:bg-app-hoverBg cursor-pointer space-y-1">
+              <div class="flex flex-col p-1.5 rounded hover:bg-app-hoverBg cursor-pointer space-y-1" @click="openDM(peer.pubkey)">
                 <div class="flex items-center space-x-2.5">
                   <div class="relative shrink-0">
                     <img :src="peer.avatar" class="w-8 h-8 rounded-full bg-gray-700" 
@@ -501,6 +586,10 @@
                     <span class="text-xs font-semibold text-gray-200 truncate" x-text="peer.name"></span>
                     <span class="text-[10px] text-gray-400 font-mono truncate" x-text="'[' + peer.pubkey.substring(0,8) + ']'"></span>
                   </div>
+                  <!-- Quick DM button -->
+                  <button @click.stop="openDM(peer.pubkey)" class="text-gray-500 hover:text-white p-1 rounded transition opacity-0 group-hover:opacity-100" title="Send DM">
+                    <i data-lucide="message-circle" class="w-3.5 h-3.5"></i>
+                  </button>
                 </div>
 
                 <!-- Per-Peer Volume Slider (if peer in voice) -->
@@ -656,7 +745,8 @@
         room: {
           slug: '',
           pass: '',
-          key: null
+          key: null,
+          topic: '' // channel topic, set via /topic command
         },
         personalRoomSlug: '',
         textChannels: [
@@ -692,6 +782,25 @@
           peerConnections: {}, // pubkey -> RTCPeerConnection
           peerAudioElements: {} // pubkey -> HTMLAudioElement
         },
+
+        // Direct Message State
+        dmChannels: [],         // [{pubkey, name, avatar, unread, lastMessage}]
+        activeDM: null,        // pubkey of active DM, or null for room mode
+        dmMessages: {},        // { [pubkey]: [{id, pubkey, author, avatar, content, sanitizedHtml, embeds, timestamp}] }
+        dmProcessedEventIds: new Set(), // separate dedup set for DM events
+
+        // Mention Autocomplete State
+        mentionState: {
+          show: false,
+          query: '',
+          cursorPos: -1,
+          selectedIndex: 0
+        },
+        mentionCandidates: [], // filtered peer list for dropdown
+
+        // Notification Sound State
+        audioCtx: null,         // AudioContext (deferred init on first gesture)
+        soundCooldown: false,   // debounce flag to prevent stacked sounds
 
         // UI Controls
         ui: {
@@ -786,6 +895,7 @@
           if (this.appError) return;
           this.parseHashRoom();
           await this.updateRoomCryptoKey();
+          this.loadDMState();
           this.connectRelays();
           // Clear connecting state after timeout (relay may be unreachable)
           setTimeout(() => { this.ui.connecting = false; }, 10000);
@@ -795,6 +905,18 @@
           this.$nextTick(() => {
             if (window.lucide) window.lucide.createIcons();
           });
+
+          // Defer AudioContext creation until first user gesture (autoplay policy)
+          const initAudio = () => {
+            this.initAudioContext();
+            document.removeEventListener('click', initAudio);
+            document.removeEventListener('touchstart', initAudio);
+          };
+          document.addEventListener('click', initAudio);
+          document.addEventListener('touchstart', initAudio);
+
+          // Setup delegated click handler for @mention clicks
+          this.setupMentionClickHandler();
         },
 
         // 1. IDENTITY MANAGEMENT
@@ -878,8 +1000,12 @@
         async switchRoom(newSlug, newPass = '') {
           this.room.slug = newSlug;
           this.room.pass = newPass;
+          this.room.topic = this.loadRoomTopic(newSlug);
           this.messages = [];
           this.processedEventIds.clear();
+          // Leave DM view when switching rooms
+          this.activeDM = null;
+          this.activeChannel = 'general';
           await this.updateRoomCryptoKey();
           this.resubscribeAll();
           this.broadcastPresence();
@@ -894,6 +1020,140 @@
         copyInviteLink() {
           navigator.clipboard.writeText(window.location.href);
           this.showToast('Invite link copied!');
+        },
+
+        // === DM (DIRECT MESSAGE) SYSTEM ===
+
+        // Open or create a DM conversation with a peer
+        openDM(targetPubkey) {
+          if (targetPubkey === this.user.pk) {
+            this.showToast('You cannot DM yourself');
+            return;
+          }
+          // Find or create DM channel
+          let channel = this.dmChannels.find(d => d.pubkey === targetPubkey);
+          if (!channel) {
+            const peer = this.peers[targetPubkey];
+            channel = {
+              pubkey: targetPubkey,
+              name: peer ? peer.name : ('Peer_' + targetPubkey.substring(0, 8)),
+              avatar: peer ? peer.avatar : this.generateIdenticonSvg(targetPubkey),
+              unread: false,
+              lastMessage: null
+            };
+            this.dmChannels.push(channel);
+          }
+          // Mark read and switch to DM view
+          channel.unread = false;
+          this.activeDM = targetPubkey;
+          this.activeChannel = null;
+          // Ensure message array exists
+          if (!this.dmMessages[targetPubkey]) this.dmMessages[targetPubkey] = [];
+          this.saveDMState();
+          this.$nextTick(() => {
+            if (window.lucide) window.lucide.createIcons();
+          });
+        },
+
+        // Send a direct message (NIP-04 ECDH encrypted)
+        async sendDirectMessage(targetPubkey, text) {
+          const nip04 = window.NostrTools.nip04;
+          if (!nip04) {
+            this.showToast('NIP-04 encryption not available');
+            return;
+          }
+          // Encrypt with NIP-04 using our secret key and target's pubkey
+          const encrypted = await nip04.encrypt(this.user.sk, targetPubkey, JSON.stringify({
+            type: 'dm',
+            text: text,
+            author: this.user.name,
+            timestamp: Math.floor(Date.now() / 1000)
+          }));
+          await this.publishNostrEvent(1, encrypted, targetPubkey);
+
+          // Store locally for immediate display
+          const msgObj = this.buildDMMessageObj(targetPubkey, text, this.user.pk, this.user.name);
+          if (!this.dmMessages[targetPubkey]) this.dmMessages[targetPubkey] = [];
+          this.dmMessages[targetPubkey].push(msgObj);
+          this.updateDMLastMessage(targetPubkey, text);
+          this.saveDMState();
+          this.$nextTick(() => this.scrollToBottom());
+        },
+
+        // Handle incoming DM event (already NIP-04 decrypted)
+        onIncomingDMEvent(ev, decryptedContent) {
+          let payload;
+          try { payload = JSON.parse(decryptedContent); } catch (e) { return; }
+          if (!payload || payload.type !== 'dm') return;
+
+          const senderPubkey = ev.pubkey;
+          // Create DM channel if it does not exist yet
+          let channel = this.dmChannels.find(d => d.pubkey === senderPubkey);
+          if (!channel) {
+            channel = {
+              pubkey: senderPubkey,
+              name: payload.author || ('Peer_' + senderPubkey.substring(0, 8)),
+              avatar: this.generateIdenticonSvg(senderPubkey),
+              unread: false,
+              lastMessage: null
+            };
+            this.dmChannels.push(channel);
+          }
+
+          const msgObj = this.buildDMMessageObj(
+            senderPubkey, payload.text, senderPubkey,
+            payload.author || ('Peer_' + senderPubkey.substring(0, 8))
+          );
+          if (!this.dmMessages[senderPubkey]) this.dmMessages[senderPubkey] = [];
+          this.dmMessages[senderPubkey].push(msgObj);
+          this.updateDMLastMessage(senderPubkey, payload.text);
+
+          // Unread indicator + notification if not actively viewing this DM
+          if (this.activeDM !== senderPubkey) {
+            channel.unread = true;
+            this.playNotificationSound();
+          }
+
+          this.saveDMState();
+          this.$nextTick(() => {
+            if (window.lucide) window.lucide.createIcons();
+          });
+        },
+
+        // Build a DM message object (mirrors structure of room messages)
+        buildDMMessageObj(targetPubkey, text, authorPubkey, authorName) {
+          const parsed = this.parseRichContent(text);
+          return {
+            id: 'dm_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8),
+            pubkey: authorPubkey,
+            author: authorName,
+            avatar: this.generateIdenticonSvg(authorPubkey),
+            content: text,
+            sanitizedHtml: parsed.text,
+            embeds: parsed.embeds,
+            timestamp: Date.now(),
+            reactions: {}
+          };
+        },
+
+        // Update the last message preview in the DM channel sidebar entry
+        updateDMLastMessage(pubkey, text) {
+          const ch = this.dmChannels.find(d => d.pubkey === pubkey);
+          if (ch) ch.lastMessage = text.substring(0, 40);
+        },
+
+        // Get display name for a DM channel by pubkey
+        getDMChannelName(pubkey) {
+          const ch = this.dmChannels.find(d => d.pubkey === pubkey);
+          return ch ? ch.name : 'Unknown';
+        },
+
+        // Scroll message feed to bottom
+        scrollToBottom() {
+          this.$nextTick(() => {
+            const feed = document.getElementById('messageFeed');
+            if (feed) feed.scrollTop = feed.scrollHeight;
+          });
         },
 
         // Encrypt payload object to AES-GCM hex JSON
@@ -986,6 +1246,17 @@
             since: Math.floor(Date.now() / 1000) - 86400
           };
           relay.ws.send(JSON.stringify(['REQ', subId, filter]));
+
+          // Subscribe to DMs addressed to us (kind 1 with our pubkey in p tag)
+          if (this.user.pk) {
+            const dmSubId = subId + '_dm';
+            const dmFilter = {
+              kinds: [1],
+              '#p': [this.user.pk],
+              since: Math.floor(Date.now() / 1000) - 86400
+            };
+            relay.ws.send(JSON.stringify(['REQ', dmSubId, dmFilter]));
+          }
         },
 
         resubscribeAll() {
@@ -1039,6 +1310,25 @@
                 return;
               }
 
+              // Check if this is a DM addressed to us (has 'p' tag with our pubkey)
+              const pTag = ev.tags && ev.tags.find(t => t[0] === 'p');
+              if (ev.kind === 1 && pTag && pTag[1] === this.user.pk) {
+                // DM: decrypt with NIP-04 instead of room key
+                if (this.processedEventIds.has(ev.id)) return;
+                this.processedEventIds.add(ev.id);
+                // Also track in DM dedup set
+                this.dmProcessedEventIds.add(ev.id);
+                try {
+                  const nip04 = window.NostrTools.nip04;
+                  if (!nip04) return;
+                  const decrypted = await nip04.decrypt(this.user.sk, ev.pubkey, ev.content);
+                  this.onIncomingDMEvent(ev, decrypted);
+                } catch (e) {
+                  // Decryption failure: wrong key, corrupt, or not a DM
+                }
+                return;
+              }
+
               const decrypted = await this.decryptPayload(ev.content);
               if (!decrypted) return; // Wrong key or corrupt payload
 
@@ -1060,10 +1350,23 @@
         async sendMessage() {
           if (!this.newMessageText.trim()) return;
 
-          try {
-            const text = this.newMessageText.trim();
-            this.newMessageText = '';
+          const text = this.newMessageText.trim();
+          this.newMessageText = '';
 
+          // Handle /commands before normal send
+          if (text.startsWith('/')) {
+            this.dispatchCommand(text);
+            return;
+          }
+
+          // DM mode: route to direct message
+          if (this.activeDM) {
+            await this.sendDirectMessage(this.activeDM, text);
+            return;
+          }
+
+          // Room channel mode: encrypt with room key and publish
+          try {
             const payload = {
               type: 'text',
               text: text,
@@ -1084,21 +1387,146 @@
           }
         },
 
+        // === COMMAND DISPATCH ===
+        dispatchCommand(input) {
+          // Parse command and arguments (handle quoted strings)
+          const parts = input.slice(1).match(/(?:[^\s"]+|"[^"]*")+/g) || [];
+          const cmd = (parts[0] || '').toLowerCase();
+          const args = parts.slice(1).map(s => s.replace(/^"(.*)"$/, '$1'));
+
+          switch (cmd) {
+            case 'help':
+              this.showToast('/help, /me <action>, /w <user> <msg>, /nick <name>, /clear, /join <slug> [pass], /relay, /dm <user>, /topic <text>');
+              break;
+
+            case 'me':
+              if (!args.length) return;
+              this.sendActionMessage(args.join(' '));
+              break;
+
+            case 'w':
+            case 'whisper':
+              if (args.length < 2) { this.showToast('Usage: /w <user> <message>'); return; }
+              this.dispatchWhisper(args[0], args.slice(1).join(' '));
+              break;
+
+            case 'nick':
+              if (!args.length) { this.showToast('Usage: /nick <name>'); return; }
+              this.user.name = args[0];
+              this.saveProfile();
+              this.showToast('Name changed to ' + args[0]);
+              break;
+
+            case 'clear':
+              this.messages = [];
+              this.showToast('Messages cleared');
+              break;
+
+            case 'join':
+              if (!args.length) { this.showToast('Usage: /join <slug> [pass]'); return; }
+              this.activeDM = null;
+              this.switchRoom(args[0], args[1] || '');
+              break;
+
+            case 'relay':
+              this.showToast('Relays: ' + this.connectedRelaysCount + '/' + this.relays.length + ' connected');
+              break;
+
+            case 'dm':
+              if (!args.length) { this.showToast('Usage: /dm <username>'); return; }
+              this.dispatchDM(args[0]);
+              break;
+
+            case 'topic':
+              if (!args.length) {
+                this.showToast('Current topic: ' + (this.room.topic || '(none)'));
+                return;
+              }
+              this.room.topic = args.join(' ');
+              this.saveRoomTopic(this.room.slug, this.room.topic);
+              this.showToast('Topic set');
+              break;
+
+            default:
+              this.showToast('Unknown command "' + cmd + '". Type /help for available commands.');
+          }
+          this.newMessageText = '';
+        },
+
+        // Send an action message (/me)
+        async sendActionMessage(actionText) {
+          const payload = {
+            type: 'action',
+            text: actionText,
+            channel: this.activeChannel,
+            author: this.user.name,
+            replyTo: null
+          };
+          try {
+            const encrypted = await this.encryptPayload(payload);
+            await this.publishNostrEvent(1, encrypted);
+          } catch (err) {
+            console.error('sendActionMessage failed:', err);
+          }
+        },
+
+        // /whisper handler: find user and send DM
+        async dispatchWhisper(userIdentifier, message) {
+          const target = this.resolvePeer(userIdentifier);
+          if (!target) { this.showToast('User "' + userIdentifier + '" not found'); return; }
+          await this.openDM(target.pubkey);
+          await this.sendDirectMessage(target.pubkey, message);
+        },
+
+        // /dm handler: find user and open DM view
+        dispatchDM(userIdentifier) {
+          const target = this.resolvePeer(userIdentifier);
+          if (!target) { this.showToast('User "' + userIdentifier + '" not found'); return; }
+          this.openDM(target.pubkey);
+        },
+
+        // Resolve a user by display name or pubkey prefix
+        resolvePeer(identifier) {
+          const lower = identifier.toLowerCase();
+          // Check active peers first
+          for (const peer of Object.values(this.peers)) {
+            if (peer.name.toLowerCase() === lower) return peer;
+            if (peer.pubkey.startsWith(identifier)) return peer;
+            if (peer.pubkey.toLowerCase() === lower) return peer;
+          }
+          // Fall back to DM channels
+          for (const dm of this.dmChannels) {
+            if (dm.name.toLowerCase() === lower) return { pubkey: dm.pubkey, name: dm.name, avatar: dm.avatar };
+            if (dm.pubkey.startsWith(identifier)) return { pubkey: dm.pubkey, name: dm.name, avatar: dm.avatar };
+          }
+          return null;
+        },
+
         onIncomingChatMessage(ev, payload) {
           const parsed = this.parseRichContent(payload.text || '');
+          const isAction = payload.type === 'action';
           const msgObj = {
             id: ev.id,
             pubkey: ev.pubkey,
             author: payload.author || ('Peer_' + ev.pubkey.substring(0, 8)),
             avatar: this.generateIdenticonSvg(ev.pubkey),
             content: payload.text,
-            sanitizedHtml: parsed.text,
+            sanitizedHtml: isAction ? parsed.text : parsed.text,
             embeds: parsed.embeds,
             channel: payload.channel || 'general',
             timestamp: ev.created_at * 1000,
             replyTo: payload.replyTo,
-            reactions: {}
+            reactions: {},
+            isAction: isAction
           };
+
+          // Check if this message mentions the current user (notification sound)
+          if (payload.text) {
+            const mentionPattern = new RegExp('@' + this.escapeRegex(this.user.name), 'i');
+            if (mentionPattern.test(payload.text)) {
+              this.playNotificationSound();
+            }
+          }
 
           this.messages.push(msgObj);
           this.messages.sort((a, b) => a.timestamp - b.timestamp);
@@ -1151,7 +1579,10 @@
             return `<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" class="text-app-accent hover:underline break-all">${cleanUrl}</a>`;
           });
 
-          const sanitizedText = window.DOMPurify ? window.DOMPurify.sanitize(html, { ADD_ATTR: ['target', 'rel'] }) : html;
+          // Style @mentions with accent color and clickable class
+          html = html.replace(/@(\w+)/g, '<span class="text-app-accent font-semibold mention-click" data-mention="$1">@$1</span>');
+
+          const sanitizedText = window.DOMPurify ? window.DOMPurify.sanitize(html, { ADD_ATTR: ['target', 'rel', 'data-mention'] }) : html;
           return { text: sanitizedText, embeds };
         },
 
@@ -1422,7 +1853,6 @@
           if (payload.type === 'offer') {
             // Reuse existing PC for ICE restart if present
             let pc = this.voice.peerConnections[senderPubkey];
-            const isIceRestart = !!pc;
             if (!pc) {
               pc = this.createPeerConnection(senderPubkey);
               if (this.voice.localStream) {
@@ -1526,6 +1956,230 @@
             };
             check();
           } catch (e) {}
+        },
+
+        // === @MENTION AUTOCOMPLETE ===
+
+        onMentionInput(event) {
+          const pos = event.target.selectionStart;
+          const text = this.newMessageText.substring(0, pos);
+          const atMatch = text.match(/@(\w*)$/);
+
+          // Show dropdown if we found @word, but not for @@ (double at)
+          if (atMatch && atMatch.index !== undefined && (atMatch.index === 0 || text[atMatch.index - 1] !== '@')) {
+            const query = atMatch[1].toLowerCase();
+            const matches = Object.values(this.peers)
+              .filter(p =>
+                p.name.toLowerCase().includes(query) ||
+                p.pubkey.toLowerCase().includes(query)
+              )
+              .slice(0, 10);
+
+            if (matches.length > 0) {
+              this.mentionState.show = true;
+              this.mentionState.query = query;
+              this.mentionState.cursorPos = pos;
+              this.mentionState.selectedIndex = 0;
+              this.mentionCandidates = matches;
+              return;
+            }
+          }
+          this.mentionState.show = false;
+        },
+
+        onMentionKeydown(event) {
+          if (!this.mentionState.show) return;
+
+          if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            this.mentionState.selectedIndex = Math.min(
+              this.mentionState.selectedIndex + 1,
+              this.mentionCandidates.length - 1
+            );
+          } else if (event.key === 'ArrowUp') {
+            event.preventDefault();
+            this.mentionState.selectedIndex = Math.max(this.mentionState.selectedIndex - 1, 0);
+          } else if (event.key === 'Enter' || event.key === 'Tab') {
+            event.preventDefault();
+            if (this.mentionCandidates[this.mentionState.selectedIndex]) {
+              this.selectMention(this.mentionCandidates[this.mentionState.selectedIndex]);
+            }
+          } else if (event.key === 'Escape') {
+            this.mentionState.show = false;
+          }
+        },
+
+        selectMention(peer) {
+          const text = this.newMessageText;
+          const pos = this.mentionState.cursorPos;
+          const beforePart = text.substring(0, pos);
+          const atMatch = beforePart.match(/@(\w*)$/);
+          if (!atMatch) return;
+
+          const before = text.substring(0, atMatch.index);
+          const after = text.substring(pos);
+          const mention = '@' + peer.name + ' ';
+          this.newMessageText = before + mention + after;
+          this.mentionState.show = false;
+
+          // Set cursor after the inserted mention
+          this.$nextTick(() => {
+            const inputs = document.querySelectorAll('input');
+            for (const inp of inputs) {
+              if (inp.placeholder && inp.placeholder.includes('Message')) {
+                const newPos = before.length + mention.length;
+                inp.setSelectionRange(newPos, newPos);
+                inp.focus();
+                break;
+              }
+            }
+          });
+        },
+
+        onMentionBlur() {
+          // Delay to allow click on dropdown item
+          setTimeout(() => { this.mentionState.show = false; }, 200);
+        },
+
+        // Set up delegated click handler for @mention elements in the message feed
+        setupMentionClickHandler() {
+          const feed = document.getElementById('messageFeed');
+          if (!feed) return;
+          feed.addEventListener('click', (e) => {
+            const mentionEl = e.target.closest('.mention-click');
+            if (mentionEl) {
+              const name = mentionEl.getAttribute('data-mention');
+              if (!name) return;
+              // Try to find peer by name in active peers
+              for (const peer of Object.values(this.peers)) {
+                if (peer.name === name) {
+                  this.openDM(peer.pubkey);
+                  return;
+                }
+              }
+              // Fall back to DM channels
+              for (const dm of this.dmChannels) {
+                if (dm.name === name) {
+                  this.openDM(dm.pubkey);
+                  return;
+                }
+              }
+              this.showToast('User "' + name + '" not found');
+            }
+          });
+        },
+
+        // Escape regex special characters for safe pattern construction
+        escapeRegex(str) {
+          return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        },
+
+        // === NOTIFICATION SOUND (synthesized via Web Audio API) ===
+
+        // Initialize AudioContext on first user gesture (browser autoplay policy)
+        initAudioContext() {
+          if (this.audioCtx) return;
+          try {
+            this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+          } catch (e) { /* Web Audio not available */ }
+        },
+
+        // Play a soft two-tone chime notification sound
+        playNotificationSound() {
+          // Do not play if tab is hidden
+          if (document.visibilityState === 'hidden') return;
+          // Cooldown to prevent stacked sounds
+          if (this.soundCooldown || this.voice.deafened) return;
+
+          if (!this.audioCtx) this.initAudioContext();
+          if (!this.audioCtx) return;
+
+          // Resume if suspended by autoplay policy
+          if (this.audioCtx.state === 'suspended') {
+            this.audioCtx.resume();
+          }
+
+          this.soundCooldown = true;
+          setTimeout(() => { this.soundCooldown = false; }, 300);
+
+          try {
+            const ctx = this.audioCtx;
+            const now = ctx.currentTime;
+
+            // First tone: C5 (523 Hz) sliding up to E5 (659 Hz)
+            const osc1 = ctx.createOscillator();
+            osc1.type = 'sine';
+            osc1.frequency.setValueAtTime(523, now);
+            osc1.frequency.linearRampToValueAtTime(659, now + 0.08);
+
+            const gain1 = ctx.createGain();
+            gain1.gain.setValueAtTime(0.3, now);
+            gain1.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+
+            osc1.connect(gain1);
+            gain1.connect(ctx.destination);
+            osc1.start(now);
+            osc1.stop(now + 0.2);
+
+            // Second tone: E5 (659 Hz) layered slightly after for a chime effect
+            const osc2 = ctx.createOscillator();
+            osc2.type = 'sine';
+            osc2.frequency.setValueAtTime(659, now + 0.08);
+
+            const gain2 = ctx.createGain();
+            gain2.gain.setValueAtTime(0.2, now + 0.08);
+            gain2.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+
+            osc2.connect(gain2);
+            gain2.connect(ctx.destination);
+            osc2.start(now + 0.08);
+            osc2.stop(now + 0.3);
+          } catch (e) { /* sound failed silently */ }
+        },
+
+        // === DM STATE PERSISTENCE (sessionStorage) ===
+
+        saveDMState() {
+          try {
+            const state = {
+              channels: this.dmChannels.map(c => ({
+                pubkey: c.pubkey,
+                name: c.name,
+                avatar: c.avatar,
+                unread: false // unread is session-only, reset on reload
+              })),
+              messages: Object.fromEntries(
+                Object.entries(this.dmMessages).map(([k, msgs]) => [k, msgs.slice(-200)])
+              )
+            };
+            sessionStorage.setItem('chat_dm_state', JSON.stringify(state));
+          } catch (e) { /* sessionStorage may be full */ }
+        },
+
+        loadDMState() {
+          try {
+            const saved = JSON.parse(sessionStorage.getItem('chat_dm_state'));
+            if (saved) {
+              this.dmChannels = saved.channels || [];
+              this.dmMessages = saved.messages || {};
+            }
+          } catch (e) { /* ignore corrupt state */ }
+        },
+
+        // ROOM TOPIC PERSISTENCE (per-room in sessionStorage)
+        loadRoomTopic(slug) {
+          try {
+            const topics = JSON.parse(sessionStorage.getItem('chat_room_topics') || '{}');
+            return topics[slug] || '';
+          } catch (e) { return ''; }
+        },
+
+        saveRoomTopic(slug, topic) {
+          try {
+            const topics = JSON.parse(sessionStorage.getItem('chat_room_topics') || '{}');
+            topics[slug] = topic;
+            sessionStorage.setItem('chat_room_topics', JSON.stringify(topics));
+          } catch (e) { /* sessionStorage may be full */ }
         },
 
         // UTILS & HELPERS
