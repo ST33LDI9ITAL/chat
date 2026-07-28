@@ -1765,6 +1765,23 @@
             };
 
             this.ui.replyTarget = null;
+
+            // Guard: ensure room key is derived before encrypting
+            if (!this.room.key) {
+              console.warn('sendMessage: room.key was null, deriving now');
+              try {
+                await this.updateRoomCryptoKey();
+              } catch (e) {
+                console.error('sendMessage: updateRoomCryptoKey failed:', e);
+                this.showToast('Failed to initialize encryption');
+                return;
+              }
+              if (!this.room.key) {
+                this.showToast('Encryption key not ready — try again in a moment');
+                return;
+              }
+            }
+
             const encrypted = await this.encryptPayload(payload);
             await this.publishNostrEvent(1, encrypted);
           } catch (err) {
