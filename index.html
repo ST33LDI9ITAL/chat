@@ -1019,6 +1019,23 @@
           this.parseHashRoom();
           await this.updateRoomCryptoKey();
           this.loadDMState();
+
+          // Initialize room ownership for the initial room
+          this.room.ownerPubkey = this.loadRoomOwner(this.room.slug);
+          this.room.ownerDiscovered = !!this.room.ownerPubkey;
+          if (!this.room.ownerDiscovered) {
+            // Start claim timer: after 3s with no owner event, claim ownership
+            this.room.ownerClaimTimer = setTimeout(() => {
+              this.room.ownerClaimTimer = null;
+              this.claimRoomOwnership();
+            }, 3000);
+          }
+          // Load cached channel config
+          const cachedConfig = this.loadRoomConfig(this.room.slug);
+          if (cachedConfig) {
+            this.applyChannelConfig(cachedConfig);
+          }
+
           console.log('initApp: starting relay connections');
           this.connectRelays();
           console.log('initApp: relay connections initiated');
