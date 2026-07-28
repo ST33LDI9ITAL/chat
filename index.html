@@ -582,7 +582,7 @@
       
       <div class="h-12 border-b border-[#1e1f22] px-4 flex items-center font-bold text-gray-300 text-xs uppercase tracking-wider">
         <span>Room Members</span>
-        <span class="ml-auto bg-[#1e1f22] text-gray-400 px-2 py-0.5 rounded text-[10px]" x-text="activePeerList.length"></span>
+        <span class="ml-auto bg-[#1e1f22] text-gray-400 px-2 py-0.5 rounded text-[10px]" x-text="activePeerList.length + 1"></span>
       </div>
 
       <div class="flex-1 overflow-y-auto p-3 space-y-4">
@@ -590,7 +590,7 @@
         <!-- Online Section -->
         <div>
           <div class="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">
-            Online — <span x-text="activePeerList.length"></span>
+            Online — <span x-text="activePeerList.length + 1"></span>
           </div>
 
           <div class="space-y-1">
