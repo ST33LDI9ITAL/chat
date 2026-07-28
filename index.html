@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Discord-Lite | Serverless Encrypted P2P Voice & Chat</title>
+  <title>Chat | Serverless Encrypted P2P Voice & Chat</title>
   
   <!-- SEO & OpenGraph -->
-  <meta name="description" content="Serverless, zero-trust encrypted, peer-to-peer Discord-Lite voice and chat web application using Nostr and WebRTC with TURN IP anonymity." />
+  <meta name="description" content="Serverless, zero-trust encrypted, peer-to-peer voice and chat web application using Nostr and WebRTC with TURN IP anonymity." />
   <meta name="theme-color" content="#5865f2" />
 
   <!-- Fonts & CDN Dependencies -->
@@ -23,9 +23,9 @@
         extend: {
           fontFamily: { sans: ['Inter', 'sans-serif'] },
           colors: {
-            discord: {
-              blurple: '#5865f2',
-              blurpleHover: '#4752c4',
+            app: {
+              accent: '#5865f2',
+              accentHover: '#4752c4',
               darkBg: '#1e1f22',
               sidebarBg: '#2b2d31',
               channelBg: '#313338',
@@ -79,18 +79,18 @@
   </style>
 </head>
 
-<body class="h-full font-sans antialiased select-none overflow-hidden" x-data="discordApp()" x-init="initApp()">
+<body class="h-full font-sans antialiased select-none overflow-hidden" x-data="chatApp()" x-init="initApp()">
 
   <!-- Main App Frame -->
-  <div class="flex h-screen w-screen overflow-hidden bg-discord-darkBg">
+  <div class="flex h-screen w-screen overflow-hidden bg-app-darkBg">
     
     <!-- 1. LEFT RAIL: SERVER / ROOM SWITCHER -->
     <div class="w-18 bg-[#1e1f22] flex flex-col items-center py-3 space-y-3 border-r border-[#2b2d31]/50 z-20 shrink-0">
       <!-- App Brand Icon / Home -->
       <button @click="switchRoom(personalRoomSlug)" 
               class="relative group flex items-center justify-center w-12 h-12 rounded-2xl transition-all duration-200"
-              :class="room.slug === personalRoomSlug ? 'bg-discord-blurple text-white rounded-2xl' : 'bg-discord-sidebarBg text-gray-300 hover:bg-discord-blurple hover:text-white hover:rounded-2xl'">
-        <i data-lucide="shield-check" class="w-6 h-6"></i>
+              :class="room.slug === personalRoomSlug ? 'bg-app-accent text-white rounded-2xl' : 'bg-app-sidebarBg text-gray-300 hover:bg-app-accent hover:text-white hover:rounded-2xl'">
+        <i data-lucide="message-square" class="w-6 h-6"></i>
         <!-- Tooltip -->
         <span class="absolute left-16 px-2.5 py-1 bg-black text-white text-xs font-semibold rounded shadow-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none">
           Personal Room (#<span x-text="personalRoomSlug.substring(0,6)"></span>)
@@ -101,7 +101,7 @@
 
       <!-- Current Room Indicator -->
       <div class="relative group">
-        <button class="w-12 h-12 rounded-2xl bg-discord-blurple/20 border-2 border-discord-blurple text-discord-blurple flex items-center justify-center font-bold text-sm shadow-inner">
+        <button class="w-12 h-12 rounded-2xl bg-app-accent/20 border-2 border-app-accent text-app-accent flex items-center justify-center font-bold text-sm shadow-inner">
           <span x-text="room.slug.substring(0, 3).toUpperCase()"></span>
         </button>
         <span class="absolute left-16 px-2.5 py-1 bg-black text-white text-xs font-semibold rounded shadow-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none">
@@ -111,7 +111,7 @@
 
       <!-- Add / Join Room Button -->
       <button @click="ui.showRoomModal = true" 
-              class="group flex items-center justify-center w-12 h-12 rounded-3xl bg-discord-sidebarBg text-discord-green hover:bg-discord-green hover:text-white hover:rounded-2xl transition-all duration-200">
+              class="group flex items-center justify-center w-12 h-12 rounded-3xl bg-app-sidebarBg text-app-green hover:bg-app-green hover:text-white hover:rounded-2xl transition-all duration-200">
         <i data-lucide="plus" class="w-6 h-6"></i>
         <span class="absolute left-16 px-2.5 py-1 bg-black text-white text-xs font-semibold rounded shadow-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none">
           Join or Create Room
@@ -122,7 +122,7 @@
       <div class="mt-auto flex flex-col items-center space-y-2 pb-2">
         <div class="relative group cursor-pointer" @click="ui.showProfileModal = true">
           <div class="w-3 h-3 rounded-full"
-               :class="connectedRelaysCount > 0 ? 'bg-discord-green shadow-[0_0_8px_#23a55a]' : 'bg-discord-red animate-pulse'"></div>
+               :class="connectedRelaysCount > 0 ? 'bg-app-green shadow-[0_0_8px_#23a55a]' : 'bg-app-red animate-pulse'"></div>
           <span class="absolute left-16 bottom-0 px-2 py-1 bg-black text-white text-xs rounded shadow whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
             Relays: <span x-text="connectedRelaysCount"></span>/<span x-text="relays.length"></span> Connected
           </span>
@@ -131,16 +131,16 @@
     </div>
 
     <!-- 2. SECONDARY SIDEBAR: CHANNELS & VOICE PANEL -->
-    <div class="w-60 bg-discord-sidebarBg flex flex-col justify-between shrink-0 border-r border-[#1e1f22]/50">
+    <div class="w-60 bg-app-sidebarBg flex flex-col justify-between shrink-0 border-r border-[#1e1f22]/50">
       
       <!-- Room Title Header -->
       <div class="h-12 border-b border-[#1e1f22] px-4 flex items-center justify-between font-bold text-gray-100 shadow-sm">
         <div class="flex items-center space-x-2 truncate">
-          <i data-lucide="lock" class="w-4 h-4 text-discord-green" x-show="room.pass"></i>
+          <i data-lucide="lock" class="w-4 h-4 text-app-green" x-show="room.pass"></i>
           <i data-lucide="globe" class="w-4 h-4 text-gray-400" x-show="!room.pass"></i>
           <span class="truncate text-sm" x-text="'#' + room.slug"></span>
         </div>
-        <button @click="copyInviteLink()" title="Copy Room Invite Link" class="text-gray-400 hover:text-white p-1 rounded hover:bg-discord-hoverBg transition">
+        <button @click="copyInviteLink()" title="Copy Room Invite Link" class="text-gray-400 hover:text-white p-1 rounded hover:bg-app-hoverBg transition">
           <i data-lucide="share-2" class="w-4 h-4"></i>
         </button>
       </div>
@@ -157,10 +157,10 @@
           <template x-for="ch in textChannels" :key="ch.id">
             <button @click="activeChannel = ch.id"
                     class="w-full flex items-center px-2 py-1.5 rounded text-sm font-medium transition-colors"
-                    :class="activeChannel === ch.id ? 'bg-discord-activeBg text-white' : 'text-gray-400 hover:bg-discord-hoverBg hover:text-gray-200'">
+                    :class="activeChannel === ch.id ? 'bg-app-activeBg text-white' : 'text-gray-400 hover:bg-app-hoverBg hover:text-gray-200'">
               <span class="text-gray-400 text-base mr-2">#</span>
               <span x-text="ch.name" class="truncate"></span>
-              <span x-show="ch.unread" class="ml-auto w-2 h-2 rounded-full bg-discord-blurple"></span>
+              <span x-show="ch.unread" class="ml-auto w-2 h-2 rounded-full bg-app-accent"></span>
             </button>
           </template>
         </div>
@@ -175,8 +175,8 @@
             <div class="space-y-1">
               <button @click="toggleVoiceChannel(vc.id)"
                       class="w-full flex items-center px-2 py-1.5 rounded text-sm font-medium transition-colors group"
-                      :class="voice.channel === vc.id ? 'bg-discord-green/20 text-discord-green font-semibold' : 'text-gray-400 hover:bg-discord-hoverBg hover:text-gray-200'">
-                <i data-lucide="radio" class="w-4 h-4 mr-2" :class="voice.channel === vc.id ? 'text-discord-green animate-pulse' : 'text-gray-400'"></i>
+                      :class="voice.channel === vc.id ? 'bg-app-green/20 text-app-green font-semibold' : 'text-gray-400 hover:bg-app-hoverBg hover:text-gray-200'">
+                <i data-lucide="radio" class="w-4 h-4 mr-2" :class="voice.channel === vc.id ? 'text-app-green animate-pulse' : 'text-gray-400'"></i>
                 <span x-text="vc.name" class="truncate"></span>
                 <span class="ml-auto text-xs px-1.5 py-0.5 rounded bg-[#1e1f22] text-gray-400 font-normal" 
                       x-text="getVoicePeerCount(vc.id)"></span>
@@ -185,13 +185,13 @@
               <!-- Voice Peers List inside channel -->
               <div class="pl-6 space-y-1" x-show="getPeersInVoiceChannel(vc.id).length > 0">
                 <template x-for="vp in getPeersInVoiceChannel(vc.id)" :key="vp.pubkey">
-                  <div class="flex items-center space-x-2 py-1 px-2 rounded hover:bg-discord-hoverBg/50 text-xs">
+                  <div class="flex items-center space-x-2 py-1 px-2 rounded hover:bg-app-hoverBg/50 text-xs">
                     <div class="relative">
                       <img :src="vp.avatar" class="w-5 h-5 rounded-full" 
                            :class="vp.isSpeaking ? 'speaking-glow' : ''" />
                     </div>
                     <span class="truncate text-gray-300 font-medium" x-text="vp.name"></span>
-                    <i data-lucide="mic-off" class="w-3 h-3 text-discord-red ml-auto" x-show="vp.muted"></i>
+                    <i data-lucide="mic-off" class="w-3 h-3 text-app-red ml-auto" x-show="vp.muted"></i>
                   </div>
                 </template>
               </div>
@@ -207,32 +207,32 @@
         <div class="flex items-center justify-between text-xs">
           <div class="flex items-center space-x-2">
             <span class="relative flex h-2.5 w-2.5">
-              <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-discord-green opacity-75"></span>
-              <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-discord-green"></span>
+              <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-app-green opacity-75"></span>
+              <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-app-green"></span>
             </span>
             <div class="flex flex-col">
-              <span class="font-bold text-discord-green">Voice Connected</span>
+              <span class="font-bold text-app-green">Voice Connected</span>
               <span class="text-[10px] text-gray-400" x-text="voice.channel ? '🔊 ' + voice.channel : ''"></span>
             </div>
           </div>
-          <button @click="leaveVoiceChannel()" class="text-discord-red hover:bg-discord-red/10 p-1.5 rounded transition" title="Disconnect Voice">
+          <button @click="leaveVoiceChannel()" class="text-app-red hover:bg-app-red/10 p-1.5 rounded transition" title="Disconnect Voice">
             <i data-lucide="phone-off" class="w-4 h-4"></i>
           </button>
         </div>
         <div class="flex items-center justify-between text-[11px] text-gray-400 pt-1 border-t border-gray-800">
           <span>TURN Relay: Metered.ca</span>
-          <span class="text-discord-green font-semibold">Anonymized</span>
+          <span class="text-app-green font-semibold">Anonymized</span>
         </div>
       </div>
 
       <!-- Bottom User Profile Footer -->
       <div class="h-14 bg-[#232428] px-2 flex items-center justify-between border-t border-[#1e1f22]">
-        <div class="flex items-center space-x-2 min-w-0 cursor-pointer p-1 rounded hover:bg-discord-hoverBg" @click="ui.showProfileModal = true">
+        <div class="flex items-center space-x-2 min-w-0 cursor-pointer p-1 rounded hover:bg-app-hoverBg" @click="ui.showProfileModal = true">
           <div class="relative shrink-0">
             <img :src="user.avatar" class="w-8 h-8 rounded-full bg-gray-700" 
                  :class="voice.isSpeaking ? 'speaking-glow' : ''" />
             <div class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-[#232428]"
-                 :class="connectedRelaysCount > 0 ? 'bg-discord-green' : 'bg-discord-red'"></div>
+                 :class="connectedRelaysCount > 0 ? 'bg-app-green' : 'bg-app-red'"></div>
           </div>
           <div class="flex flex-col min-w-0">
             <span class="text-xs font-bold text-white truncate" x-text="user.name"></span>
@@ -243,8 +243,8 @@
         <div class="flex items-center space-x-1">
           <!-- Mic Toggle -->
           <button @click="toggleMute()" 
-                  class="p-1.5 rounded hover:bg-discord-hoverBg text-gray-300 hover:text-white transition"
-                  :class="voice.muted ? 'text-discord-red bg-discord-red/10' : ''"
+                  class="p-1.5 rounded hover:bg-app-hoverBg text-gray-300 hover:text-white transition"
+                  :class="voice.muted ? 'text-app-red bg-app-red/10' : ''"
                   :title="voice.muted ? 'Unmute Mic' : 'Mute Mic'">
             <i data-lucide="mic-off" class="w-4 h-4" x-show="voice.muted"></i>
             <i data-lucide="mic" class="w-4 h-4" x-show="!voice.muted"></i>
@@ -252,15 +252,15 @@
 
           <!-- Deafen Toggle -->
           <button @click="toggleDeafen()" 
-                  class="p-1.5 rounded hover:bg-discord-hoverBg text-gray-300 hover:text-white transition"
-                  :class="voice.deafened ? 'text-discord-red bg-discord-red/10' : ''"
+                  class="p-1.5 rounded hover:bg-app-hoverBg text-gray-300 hover:text-white transition"
+                  :class="voice.deafened ? 'text-app-red bg-app-red/10' : ''"
                   :title="voice.deafened ? 'Undeafen Audio' : 'Deafen Audio'">
             <i data-lucide="volume-x" class="w-4 h-4" x-show="voice.deafened"></i>
             <i data-lucide="volume-2" class="w-4 h-4" x-show="!voice.deafened"></i>
           </button>
 
           <!-- Profile / Settings -->
-          <button @click="ui.showProfileModal = true" class="p-1.5 rounded hover:bg-discord-hoverBg text-gray-300 hover:text-white transition" title="User Settings">
+          <button @click="ui.showProfileModal = true" class="p-1.5 rounded hover:bg-app-hoverBg text-gray-300 hover:text-white transition" title="User Settings">
             <i data-lucide="settings" class="w-4 h-4"></i>
           </button>
         </div>
@@ -269,10 +269,10 @@
     </div>
 
     <!-- 3. CENTER: CHAT AREA & MESSAGES FEED -->
-    <div class="flex-1 flex flex-col bg-discord-channelBg min-w-0 relative">
+    <div class="flex-1 flex flex-col bg-app-channelBg min-w-0 relative">
       
       <!-- Top Channel Bar -->
-      <div class="h-12 border-b border-[#1e1f22] px-4 flex items-center justify-between shadow-sm bg-discord-channelBg z-10">
+      <div class="h-12 border-b border-[#1e1f22] px-4 flex items-center justify-between shadow-sm bg-app-channelBg z-10">
         <div class="flex items-center space-x-3 min-w-0">
           <span class="text-gray-400 text-xl font-bold">#</span>
           <span class="font-bold text-white text-base truncate" x-text="activeChannel"></span>
@@ -283,7 +283,7 @@
         <!-- Search Bar -->
         <div class="relative w-48 sm:w-64">
           <input type="text" x-model="ui.search" placeholder="Search messages..." 
-                 class="w-full bg-[#1e1f22] text-xs text-gray-200 placeholder-gray-500 pl-8 pr-3 py-1.5 rounded focus:outline-none focus:ring-1 focus:ring-discord-blurple" />
+                 class="w-full bg-[#1e1f22] text-xs text-gray-200 placeholder-gray-500 pl-8 pr-3 py-1.5 rounded focus:outline-none focus:ring-1 focus:ring-app-accent" />
           <i data-lucide="search" class="w-3.5 h-3.5 text-gray-500 absolute left-2.5 top-2"></i>
         </div>
       </div>
@@ -293,12 +293,12 @@
         
         <!-- Welcome Banner -->
         <div class="border-b border-gray-700/50 pb-4 mb-4">
-          <div class="w-12 h-12 rounded-full bg-discord-blurple/20 flex items-center justify-center text-discord-blurple mb-2">
+          <div class="w-12 h-12 rounded-full bg-app-accent/20 flex items-center justify-center text-app-accent mb-2">
             <i data-lucide="hash" class="w-7 h-7"></i>
           </div>
           <h2 class="text-2xl font-bold text-white" x-text="'Welcome to #' + activeChannel + '!'"></h2>
           <p class="text-xs text-gray-400 mt-1">
-            This is the start of the <span x-text="'#' + activeChannel"></span> channel in room <strong class="text-discord-blurple" x-text="'#' + room.slug"></strong>.
+            This is the start of the <span x-text="'#' + activeChannel"></span> channel in room <strong class="text-app-accent" x-text="'#' + room.slug"></strong>.
           </p>
         </div>
 
@@ -327,8 +327,8 @@
 
               <!-- Reply Quote Preview (if replying) -->
               <template x-if="msg.replyTo">
-                <div class="flex items-center space-x-2 text-xs text-gray-400 bg-[#2b2d31]/60 px-2 py-1 rounded my-1 border-l-2 border-discord-blurple">
-                  <i data-lucide="corner-down-right" class="w-3 h-3 text-discord-blurple"></i>
+                <div class="flex items-center space-x-2 text-xs text-gray-400 bg-[#2b2d31]/60 px-2 py-1 rounded my-1 border-l-2 border-app-accent">
+                  <i data-lucide="corner-down-right" class="w-3 h-3 text-app-accent"></i>
                   <span class="font-semibold" x-text="msg.replyTo.author + ':'"></span>
                   <span class="truncate" x-text="msg.replyTo.snippet"></span>
                 </div>
@@ -403,7 +403,7 @@
       <div x-show="ui.replyTarget" x-transition class="bg-[#2b2d31] px-4 py-1.5 flex items-center justify-between border-t border-gray-700 text-xs">
         <div class="flex items-center space-x-2 truncate">
           <span class="text-gray-400">Replying to</span>
-          <span class="font-bold text-discord-blurple" x-text="ui.replyTarget?.author"></span>
+          <span class="font-bold text-app-accent" x-text="ui.replyTarget?.author"></span>
         </div>
         <button @click="ui.replyTarget = null" class="text-gray-400 hover:text-white">
           <i data-lucide="x" class="w-4 h-4"></i>
@@ -411,7 +411,7 @@
       </div>
 
       <!-- Message Input Box -->
-      <div class="p-4 bg-discord-channelBg">
+      <div class="p-4 bg-app-channelBg">
         <div class="bg-[#383a40] rounded-lg p-2.5 flex items-center space-x-3 shadow-inner border border-gray-700/30 relative">
           
           <!-- Add Attachment / Link helper -->
@@ -438,7 +438,7 @@
           </div>
 
           <!-- Send Button -->
-          <button @click="sendMessage()" class="bg-discord-blurple hover:bg-discord-blurpleHover text-white p-1.5 rounded-md transition shadow">
+          <button @click="sendMessage()" class="bg-app-accent hover:bg-app-accentHover text-white p-1.5 rounded-md transition shadow">
             <i data-lucide="send" class="w-4 h-4"></i>
           </button>
         </div>
@@ -447,7 +447,7 @@
     </div>
 
     <!-- 4. RIGHT SIDEBAR: ONLINE MEMBERS & VOICE PEERS -->
-    <div class="w-60 bg-discord-sidebarBg border-l border-[#1e1f22]/50 flex flex-col shrink-0 hidden lg:flex">
+    <div class="w-60 bg-app-sidebarBg border-l border-[#1e1f22]/50 flex flex-col shrink-0 hidden lg:flex">
       
       <div class="h-12 border-b border-[#1e1f22] px-4 flex items-center font-bold text-gray-300 text-xs uppercase tracking-wider">
         <span>Room Members</span>
@@ -464,27 +464,27 @@
 
           <div class="space-y-1">
             <!-- Local User Item -->
-            <div class="flex items-center space-x-2.5 p-1.5 rounded hover:bg-discord-hoverBg cursor-pointer">
+            <div class="flex items-center space-x-2.5 p-1.5 rounded hover:bg-app-hoverBg cursor-pointer">
               <div class="relative shrink-0">
                 <img :src="user.avatar" class="w-8 h-8 rounded-full bg-gray-700" 
                      :class="voice.isSpeaking ? 'speaking-glow' : ''" />
-                <div class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-discord-green border-2 border-discord-sidebarBg"></div>
+                <div class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-app-green border-2 border-app-sidebarBg"></div>
               </div>
               <div class="flex flex-col min-w-0">
                 <span class="text-xs font-bold text-white truncate" x-text="user.name + ' (You)'"></span>
-                <span class="text-[10px] text-discord-blurple font-semibold" x-text="voice.connected ? '🔊 Voice Connected' : 'Online'"></span>
+                <span class="text-[10px] text-app-accent font-semibold" x-text="voice.connected ? '🔊 Voice Connected' : 'Online'"></span>
               </div>
             </div>
 
             <!-- Remote Peers -->
             <template x-for="peer in activePeerList" :key="peer.pubkey">
-              <div class="flex flex-col p-1.5 rounded hover:bg-discord-hoverBg cursor-pointer space-y-1">
+              <div class="flex flex-col p-1.5 rounded hover:bg-app-hoverBg cursor-pointer space-y-1">
                 <div class="flex items-center space-x-2.5">
                   <div class="relative shrink-0">
                     <img :src="peer.avatar" class="w-8 h-8 rounded-full bg-gray-700" 
                          :class="peer.isSpeaking ? 'speaking-glow' : ''" />
-                    <div class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-discord-sidebarBg"
-                         :class="peer.inVoice ? 'bg-discord-green' : 'bg-discord-green'"></div>
+                    <div class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-app-sidebarBg"
+                         :class="peer.inVoice ? 'bg-app-green' : 'bg-app-green'"></div>
                   </div>
                   <div class="flex flex-col min-w-0 flex-1">
                     <span class="text-xs font-semibold text-gray-200 truncate" x-text="peer.name"></span>
@@ -498,7 +498,7 @@
                     <i data-lucide="volume-2" class="w-3 h-3 text-gray-400"></i>
                     <input type="range" min="0" max="200" :value="peer.volume || 100" 
                            @input="setPeerVolume(peer.pubkey, $event.target.value)"
-                           class="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-discord-blurple" />
+                           class="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-app-accent" />
                     <span class="text-[9px] text-gray-400 w-6 text-right" x-text="(peer.volume || 100) + '%'"></span>
                   </div>
                 </template>
@@ -518,10 +518,10 @@
   <!-- Room Create / Join Modal -->
   <div x-show="ui.showRoomModal" x-transition @click.self="ui.showRoomModal = false"
        class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-    <div class="bg-discord-sidebarBg w-full max-w-md rounded-xl shadow-2xl border border-gray-700 p-6 space-y-5">
+    <div class="bg-app-sidebarBg w-full max-w-md rounded-xl shadow-2xl border border-gray-700 p-6 space-y-5">
       <div class="flex justify-between items-center border-b border-gray-700 pb-3">
         <h3 class="text-lg font-bold text-white flex items-center space-x-2">
-          <i data-lucide="hash" class="w-5 h-5 text-discord-blurple"></i>
+          <i data-lucide="hash" class="w-5 h-5 text-app-accent"></i>
           <span>Join or Create Room</span>
         </h3>
         <button @click="ui.showRoomModal = false" class="text-gray-400 hover:text-white">
@@ -533,13 +533,13 @@
         <div>
           <label class="block text-xs font-bold uppercase text-gray-400 mb-1">Room Slug Name</label>
           <input type="text" x-model="ui.newRoomSlug" placeholder="e.g. secret-lounge or a3f9e1b0" 
-                 class="w-full bg-[#1e1f22] text-sm text-gray-100 p-2.5 rounded border border-gray-700 focus:outline-none focus:ring-2 focus:ring-discord-blurple" />
+                 class="w-full bg-[#1e1f22] text-sm text-gray-100 p-2.5 rounded border border-gray-700 focus:outline-none focus:ring-2 focus:ring-app-accent" />
         </div>
 
         <div>
           <label class="block text-xs font-bold uppercase text-gray-400 mb-1">Room Encryption Password (Optional)</label>
           <input type="password" x-model="ui.newRoomPass" placeholder="Leave empty for public unencrypted room" 
-                 class="w-full bg-[#1e1f22] text-sm text-gray-100 p-2.5 rounded border border-gray-700 focus:outline-none focus:ring-2 focus:ring-discord-blurple" />
+                 class="w-full bg-[#1e1f22] text-sm text-gray-100 p-2.5 rounded border border-gray-700 focus:outline-none focus:ring-2 focus:ring-app-accent" />
           <p class="text-[11px] text-gray-400 mt-1">
             🔑 Passwords derive 256-bit AES-GCM zero-trust keys via 100k PBKDF2 iterations.
           </p>
@@ -548,7 +548,7 @@
 
       <div class="flex justify-end space-x-3 pt-2">
         <button @click="ui.showRoomModal = false" class="px-4 py-2 text-sm text-gray-300 hover:underline">Cancel</button>
-        <button @click="submitSwitchRoom()" class="px-5 py-2 text-sm bg-discord-blurple hover:bg-discord-blurpleHover text-white font-semibold rounded-md shadow transition">
+        <button @click="submitSwitchRoom()" class="px-5 py-2 text-sm bg-app-accent hover:bg-app-accentHover text-white font-semibold rounded-md shadow transition">
           Switch Room
         </button>
       </div>
@@ -558,10 +558,10 @@
   <!-- User Profile Settings Modal -->
   <div x-show="ui.showProfileModal" x-transition @click.self="ui.showProfileModal = false"
        class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-    <div class="bg-discord-sidebarBg w-full max-w-md rounded-xl shadow-2xl border border-gray-700 p-6 space-y-5">
+    <div class="bg-app-sidebarBg w-full max-w-md rounded-xl shadow-2xl border border-gray-700 p-6 space-y-5">
       <div class="flex justify-between items-center border-b border-gray-700 pb-3">
         <h3 class="text-lg font-bold text-white flex items-center space-x-2">
-          <i data-lucide="user" class="w-5 h-5 text-discord-blurple"></i>
+          <i data-lucide="user" class="w-5 h-5 text-app-accent"></i>
           <span>User Profile & Nostr Identity</span>
         </h3>
         <button @click="ui.showProfileModal = false" class="text-gray-400 hover:text-white">
@@ -575,7 +575,7 @@
           <div>
             <label class="block text-xs font-bold uppercase text-gray-400 mb-1">Display Handle</label>
             <input type="text" x-model="user.name" @change="saveProfile()" 
-                   class="bg-[#1e1f22] text-sm text-gray-100 p-2 rounded border border-gray-700 focus:outline-none focus:ring-1 focus:ring-discord-blurple" />
+                   class="bg-[#1e1f22] text-sm text-gray-100 p-2 rounded border border-gray-700 focus:outline-none focus:ring-1 focus:ring-app-accent" />
           </div>
         </div>
 
@@ -591,7 +591,7 @@
               <div class="flex items-center justify-between">
                 <span class="text-gray-300 font-mono" x-text="r.url"></span>
                 <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase"
-                      :class="r.status === 'connected' ? 'bg-discord-green/20 text-discord-green' : 'bg-discord-red/20 text-discord-red'"
+                      :class="r.status === 'connected' ? 'bg-app-green/20 text-app-green' : 'bg-app-red/20 text-app-red'"
                       x-text="r.status"></span>
               </div>
             </template>
@@ -600,7 +600,7 @@
       </div>
 
       <div class="flex justify-end pt-2">
-        <button @click="ui.showProfileModal = false" class="px-5 py-2 text-sm bg-discord-blurple hover:bg-discord-blurpleHover text-white font-semibold rounded-md shadow transition">
+        <button @click="ui.showProfileModal = false" class="px-5 py-2 text-sm bg-app-accent hover:bg-app-accentHover text-white font-semibold rounded-md shadow transition">
           Close
         </button>
       </div>
@@ -615,7 +615,7 @@
 
   <!-- APPLICATION LOGIC & CRYPTO ENGINE -->
   <script>
-    function discordApp() {
+    function chatApp() {
       return {
         // App State
         user: {
@@ -725,7 +725,7 @@
 
         // 1. IDENTITY MANAGEMENT
         async initUserIdentity() {
-          let skHex = sessionStorage.getItem('discord_lite_sk');
+          let skHex = sessionStorage.getItem('chat_sk');
           if (!skHex) {
             if (window.NostrTools && window.NostrTools.generateSecretKey) {
               const sk = window.NostrTools.generateSecretKey();
@@ -734,7 +734,7 @@
               const randomBytes = window.crypto.getRandomValues(new Uint8Array(32));
               skHex = Array.from(randomBytes).map(b => b.toString(16).padStart(2, '0')).join('');
             }
-            sessionStorage.setItem('discord_lite_sk', skHex);
+            sessionStorage.setItem('chat_sk', skHex);
           }
           this.user.sk = skHex;
 
@@ -770,9 +770,9 @@
         },
 
         async updateRoomCryptoKey() {
-          const pass = this.room.pass && this.room.pass.trim() ? this.room.pass.trim() : 'public-discord-lite-default-pass';
+          const pass = this.room.pass && this.room.pass.trim() ? this.room.pass.trim() : 'public-chat-default-pass';
           const enc = new TextEncoder();
-          const salt = enc.encode('discord-lite-' + this.room.slug);
+          const salt = enc.encode('chat-room-' + this.room.slug);
           
           const baseKey = await window.crypto.subtle.importKey(
             'raw', enc.encode(pass), { name: 'PBKDF2' }, false, ['deriveKey']
@@ -1017,22 +1017,22 @@
             const ytMatch = cleanUrl.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
             if (ytMatch && ytMatch[1]) {
               embeds.push({ type: 'youtube', id: ytMatch[1], url: cleanUrl });
-              return `<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" class="text-discord-blurple hover:underline break-all">${cleanUrl}</a>`;
+              return `<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" class="text-app-accent hover:underline break-all">${cleanUrl}</a>`;
             }
 
             // Image Match
             if (cleanUrl.match(/\.(jpeg|jpg|gif|png|webp)(\?.*)?$/i)) {
               embeds.push({ type: 'image', url: cleanUrl });
-              return `<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" class="text-discord-blurple hover:underline break-all">${cleanUrl}</a>`;
+              return `<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" class="text-app-accent hover:underline break-all">${cleanUrl}</a>`;
             }
 
             // Video Match
             if (cleanUrl.match(/\.(mp4|webm)(\?.*)?$/i)) {
               embeds.push({ type: 'video', url: cleanUrl });
-              return `<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" class="text-discord-blurple hover:underline break-all">${cleanUrl}</a>`;
+              return `<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" class="text-app-accent hover:underline break-all">${cleanUrl}</a>`;
             }
 
-            return `<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" class="text-discord-blurple hover:underline break-all">${cleanUrl}</a>`;
+            return `<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" class="text-app-accent hover:underline break-all">${cleanUrl}</a>`;
           });
 
           const sanitizedText = window.DOMPurify ? window.DOMPurify.sanitize(html, { ADD_ATTR: ['target', 'rel'] }) : html;

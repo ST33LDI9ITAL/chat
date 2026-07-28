@@ -1,6 +1,6 @@
-# 🛡️ Discord-Lite: Single-File Serverless Encrypted P2P Voice & Chat
+# 💬 Chat: Single-File Serverless Encrypted P2P Voice & Chat
 
-A fully self-contained, serverless "Discord-Lite" single-page web application (`index.html`) designed for zero-trust encrypted text chat, rich media embeds, online presence, and peer-to-peer WebRTC voice channels.
+A fully self-contained, serverless single-page web application (`index.html`) designed for zero-trust encrypted text chat, rich media embeds, online presence, and peer-to-peer WebRTC voice channels.
 
 Deployable directly to **GitHub Pages** with zero backend infrastructure required.
 
@@ -23,8 +23,8 @@ Deployable directly to **GitHub Pages** with zero backend infrastructure require
   - Real-time Web Audio API frequency analysis powering visual glowing speaking rings around active speaker avatars.
   - Controls for global microphone mute, global deafen, noise suppression, and per-peer volume sliders (0% to 200%).
 
-- **🎨 Discord Dark Aesthetics & Rich Media**:
-  - Modern dark mode layout styled with Tailwind CSS and Lucide Icons.
+- **🎨 Modern Dark UI & Rich Media**:
+  - Clean dark mode layout styled with Tailwind CSS and Lucide Icons.
   - Automatic rich media embeds: YouTube responsive videos, direct images & GIFs, and MP4/WebM video players.
   - Native DOMPurify HTML sanitization.
   - Integrated emoji picker element, reply quoting, search filter, and room invite link generator (`#room=slug&pass=secret`).
