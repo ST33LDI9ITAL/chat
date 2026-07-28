@@ -147,6 +147,10 @@
           <!-- Owner badge -->
           <span x-show="room.ownerPubkey === user.pk" class="text-[10px] text-yellow-400 font-bold" title="Room Owner">👑</span>
           <span x-show="room.ownerPubkey && room.ownerPubkey !== user.pk" class="text-[10px] text-gray-500" title="Owned by another user">👑</span>
+          <!-- Rename button (owner only) -->
+          <button x-show="user.pk === room.ownerPubkey" @click="promptRenameRoom()" class="text-gray-500 hover:text-white transition p-0.5 rounded ml-1" title="Rename Room">
+            <i data-lucide="edit" class="w-3.5 h-3.5"></i>
+          </button>
         </div>
         <button @click="copyInviteLink()" title="Copy Room Invite Link" class="text-gray-400 hover:text-white p-1 rounded hover:bg-app-hoverBg transition">
           <i data-lucide="share-2" class="w-4 h-4"></i>
@@ -1865,7 +1869,7 @@
 
           switch (cmd) {
             case 'help':
-              this.showToast('/help, /me <action>, /w <user> <msg>, /nick <name>, /clear, /join <slug> [pass], /relay, /dm <user>, /topic <text>, /rename <name>');
+              this.showToast('/help, /me <action>, /w <user> <msg>, /nick <name>, /clear, /join <slug> [pass], /relay, /dm <user>, /topic <text>, /room <name>');
               break;
 
             case 'me':
@@ -1916,7 +1920,7 @@
               this.showToast('Topic set');
               break;
 
-            case 'rename':
+            case 'room':
               if (this.room.ownerPubkey !== this.user.pk) {
                 this.showToast('Only the room owner can rename the room');
                 return;
@@ -2117,6 +2121,16 @@
           // Otherwise, insert into the message input (existing behavior)
           this.newMessageText += emoji;
           this.ui.showEmojiPicker = false;
+        },
+
+        // Prompt room owner to rename the room (edit icon in header)
+        promptRenameRoom() {
+          const name = prompt('Enter a new name for this room:', this.room.displayName || this.room.slug);
+          if (name && name.trim()) {
+            this.room.displayName = name.trim();
+            this.saveRoomDisplayName(this.room.slug, this.room.displayName);
+            this.showToast('Room renamed to "' + this.room.displayName + '"');
+          }
         },
 
         promptMediaUrl() {
