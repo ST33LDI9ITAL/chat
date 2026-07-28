@@ -1123,6 +1123,9 @@
           });
           this.room.slug = params.room || this.personalRoomSlug;
           this.room.pass = params.pass || '';
+
+          // Update URL hash to ensure full-length slug is persisted
+          this.updateUrlHash();
         },
 
         async updateRoomCryptoKey() {
