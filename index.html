@@ -787,7 +787,7 @@
         dmChannels: [],         // [{pubkey, name, avatar, unread, lastMessage}]
         activeDM: null,        // pubkey of active DM, or null for room mode
         dmMessages: {},        // { [pubkey]: [{id, pubkey, author, avatar, content, sanitizedHtml, embeds, timestamp}] }
-        dmProcessedEventIds: new Set(), // separate dedup set for DM events
+        dmProcessedEventIds: new Set(), // dedup set for DM events (events also in processedEventIds)
 
         // Mention Autocomplete State
         mentionState: {
@@ -1082,6 +1082,8 @@
 
         // Handle incoming DM event (already NIP-04 decrypted)
         onIncomingDMEvent(ev, decryptedContent) {
+          // Skip events we sent ourselves (relay echoes them back)
+          if (ev.pubkey === this.user.pk) return;
           let payload;
           try { payload = JSON.parse(decryptedContent); } catch (e) { return; }
           if (!payload || payload.type !== 'dm') return;
@@ -1311,12 +1313,11 @@
               }
 
               // Check if this is a DM addressed to us (has 'p' tag with our pubkey)
+              // Must check BEFORE room decryption since DMs use NIP-04, not the room key
               const pTag = ev.tags && ev.tags.find(t => t[0] === 'p');
               if (ev.kind === 1 && pTag && pTag[1] === this.user.pk) {
                 // DM: decrypt with NIP-04 instead of room key
-                if (this.processedEventIds.has(ev.id)) return;
-                this.processedEventIds.add(ev.id);
-                // Also track in DM dedup set
+                // Event was already dedup'd at this.processedEventIds above
                 this.dmProcessedEventIds.add(ev.id);
                 try {
                   const nip04 = window.NostrTools.nip04;
