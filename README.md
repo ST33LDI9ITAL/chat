@@ -23,6 +23,38 @@ Deployable directly to **GitHub Pages** with zero backend infrastructure require
   - Real-time Web Audio API frequency analysis powering visual glowing speaking rings around active speaker avatars.
   - Controls for global microphone mute, global deafen, noise suppression, and per-peer volume sliders (0% to 200%).
 
+- **💬 Direct Messages (NIP-04 ECDH Encrypted)**:
+  - Private conversations using **secp256k1 ECDH key exchange** with AES-256-CBC encryption.
+  - Click any online peer to start a DM conversation.
+  - Separate DM sidebar with unread indicators.
+  - Persistent across page reloads within the same session.
+
+- **⌨️ /commands System**:
+  - `/me <action>` — send italic action messages (`/me waves`).
+  - `/w <user> <msg>` — whisper/DM a user.
+  - `/nick <name>` — change your display name.
+  - `/clear` — clear message history.
+  - `/join <slug> [pass]` — switch rooms.
+  - `/topic <text>` — set a channel topic.
+  - `/relay` — show relay connection status.
+  - `/dm <user>` — open a DM with a user.
+
+- **@mention Autocomplete**:
+  - Type `@` to trigger a dropdown of online peers.
+  - Filter by name or pubkey as you type.
+  - Click rendered mentions to quickly open a DM.
+
+- **👑 Room Ownership & Channel Management**:
+  - The first person to join a room becomes its **owner** (via kind:30000 Nostr events).
+  - Owners can **add and remove text and voice channels** dynamically.
+  - Channel configuration is broadcast to all members via relay events.
+  - Room config persists across reloads (localStorage).
+
+- **🔔 Notification Sound**:
+  - Soft synthesized two-tone chime on incoming DMs and @mentions.
+  - No external audio files needed — uses Web Audio API.
+  - Respects browser autoplay policy and background tab state.
+
 - **🎨 Modern Dark UI & Rich Media**:
   - Clean dark mode layout styled with Tailwind CSS and Lucide Icons.
   - Automatic rich media embeds: YouTube responsive videos, direct images & GIFs, and MP4/WebM video players.
@@ -68,9 +100,10 @@ Deployable directly to **GitHub Pages** with zero backend infrastructure require
 
 - **No Forward Secrecy**: If a room password is compromised, all past messages (within the relay's retention window) can be decrypted. There is no key ratcheting mechanism.
 - **Metadata Leakage**: Room slugs and event kinds (e.g. `kind: 1` for chat, `kind: 25000` for WebRTC signals) are visible to Nostr relay operators and anyone monitoring the relay. Event *content* remains encrypted.
-- **Ephemeral Messages**: Messages are not persisted to localStorage. Reloading the page clears all messages. Relays may or may not store history (typically 1–7 days).
+- **Ephemeral Messages**: Reloading the page clears room messages (fetched from relays on reconnect). DM conversations persist within the session (sessionStorage). Room config (channels, topic, owner) persists in localStorage.
 - **Public TURN Relay Availability**: The fallback TURN servers (ExpressTURN public demo, Metered.ca open relay, ProcessOne) are shared public resources with no SLA. Voice quality and connectivity may vary.
 - **Hardcoded Relays**: The three default Nostr relays (`nos.lol`, `damus.io`, `primal.net`) are hardcoded. There is currently no UI to add or remove relays.
+- **Ownership Race**: If two users join an empty room simultaneously, both may claim ownership. The relay's replaceable event dedup resolves the conflict, but briefly both may see owner UI before resolution.
 
 ---
 
