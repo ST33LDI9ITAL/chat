@@ -1019,9 +1019,14 @@
           this.parseHashRoom();
           await this.updateRoomCryptoKey();
           this.loadDMState();
+          console.log('initApp: starting relay connections');
           this.connectRelays();
+          console.log('initApp: relay connections initiated');
           // Clear connecting state after timeout (relay may be unreachable)
-          setTimeout(() => { this.ui.connecting = false; }, 10000);
+          setTimeout(() => {
+            console.log('initApp: 10s timeout — relays:', this.relays.map(r => r.url + '=' + r.status));
+            this.ui.connecting = false;
+          }, 10000);
           this.startHeartbeatLoop();
 
           // Refresh Lucide icons
@@ -1601,8 +1606,9 @@
               this.handleRelayMessage(msg.data);
             };
 
-            relay.ws.onclose = () => {
+            relay.ws.onclose = (e) => {
               relay.status = 'disconnected';
+              console.warn('WebSocket closed for', relay.url, 'code:', e.code, 'reason:', e.reason);
               if (relay._pingInterval) {
                 clearInterval(relay._pingInterval);
                 relay._pingInterval = null;
@@ -1610,8 +1616,9 @@
               setTimeout(() => this.connectSingleRelay(relay), 5000);
             };
 
-            relay.ws.onerror = () => {
+            relay.ws.onerror = (err) => {
               relay.status = 'disconnected';
+              console.warn('WebSocket error for', relay.url, err);
             };
           } catch (e) {
             relay.status = 'disconnected';
