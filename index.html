@@ -677,36 +677,37 @@
           newRoomPass: ''
         },
 
-        // TURN / ICE Config with ExpressTURN, Metered, and ProcessOne fallbacks
+        // TURN / ICE Config: ExpressTURN (Primary 1TB), Metered (Secondary 50GB), STUN & Fallbacks
         iceServers: [
           { urls: "stun:stun.l.google.com:19302" },
           { urls: "stun:stun1.l.google.com:19302" },
           { urls: "stun:stun.services.mozilla.com" },
+          
+          // 1. Primary: ExpressTURN (1,000 GB Bandwidth)
           {
-            urls: "turn:openrelay.metered.ca:80",
-            username: "openrelayproject",
-            credential: "openrelayproject"
-          },
-          {
-            urls: "turn:openrelay.metered.ca:443",
-            username: "openrelayproject",
-            credential: "openrelayproject"
-          },
-          {
-            urls: "turn:openrelay.metered.ca:3478",
-            username: "openrelayproject",
-            credential: "openrelayproject"
+            urls: "%%EXPRESS_TURN_URL%%",
+            username: "%%EXPRESS_TURN_USER%%",
+            credential: "%%EXPRESS_TURN_PASS%%"
           },
           {
             urls: "turn:express.expressturn.com:3478",
             username: "expressturn",
             credential: "expressturn"
           },
+
+          // 2. Secondary: Metered TURN (50 GB Bandwidth)
           {
-            urls: "turn:express.expressturn.com:443",
-            username: "expressturn",
-            credential: "expressturn"
+            urls: "%%METERED_TURN_URL%%",
+            username: "%%METERED_TURN_USER%%",
+            credential: "%%METERED_TURN_PASS%%"
           },
+          {
+            urls: "turn:openrelay.metered.ca:443",
+            username: "openrelayproject",
+            credential: "openrelayproject"
+          },
+
+          // 3. Fallback Open TURN Relays
           {
             urls: "turn:turn.process-one.net:3478",
             username: "guest",

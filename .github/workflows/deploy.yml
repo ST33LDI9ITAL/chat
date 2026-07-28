@@ -1,0 +1,49 @@
+name: Deploy Chat App to GitHub Pages
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Inject Secret Credentials into index.html
+        run: |
+          # Default fallbacks if secrets are not set
+          EXPRESS_URL="${{ secrets.EXPRESS_TURN_URL }}"
+          EXPRESS_USER="${{ secrets.EXPRESS_TURN_USER }}"
+          EXPRESS_PASS="${{ secrets.EXPRESS_TURN_PASS }}"
+          
+          METERED_URL="${{ secrets.METERED_TURN_URL }}"
+          METERED_USER="${{ secrets.METERED_TURN_USER }}"
+          METERED_PASS="${{ secrets.METERED_TURN_PASS }}"
+
+          if [ -z "$EXPRESS_URL" ]; then EXPRESS_URL="turn:express.expressturn.com:443"; fi
+          if [ -z "$EXPRESS_USER" ]; then EXPRESS_USER="expressturn"; fi
+          if [ -z "$EXPRESS_PASS" ]; then EXPRESS_PASS="expressturn"; fi
+
+          if [ -z "$METERED_URL" ]; then METERED_URL="turn:openrelay.metered.ca:443"; fi
+          if [ -z "$METERED_USER" ]; then METERED_USER="openrelayproject"; fi
+          if [ -z "$METERED_PASS" ]; then METERED_PASS="openrelayproject"; fi
+
+          sed -i "s|%%EXPRESS_TURN_URL%%|${EXPRESS_URL}|g" index.html
+          sed -i "s|%%EXPRESS_TURN_USER%%|${EXPRESS_USER}|g" index.html
+          sed -i "s|%%EXPRESS_TURN_PASS%%|${EXPRESS_PASS}|g" index.html
+
+          sed -i "s|%%METERED_TURN_URL%%|${METERED_URL}|g" index.html
+          sed -i "s|%%METERED_TURN_USER%%|${METERED_USER}|g" index.html
+          sed -i "s|%%METERED_TURN_PASS%%|${METERED_PASS}|g" index.html
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./
