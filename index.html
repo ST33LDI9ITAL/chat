@@ -453,8 +453,8 @@
                     <button @click="addReaction(msg, '👍')" class="p-1 text-gray-400 hover:text-white rounded" title="Thumbs Up">👍</button>
                     <button @click="addReaction(msg, '❤️')" class="p-1 text-gray-400 hover:text-white rounded" title="Heart">❤️</button>
                     <!-- Reaction emoji picker -->
-                    <div class="relative">
-                      <button @click="toggleReactionPicker(msg)" class="p-1 text-gray-400 hover:text-yellow-400 rounded" title="Add reaction"><i data-lucide="smile-plus" class="w-3.5 h-3.5"></i></button>
+                    <div class="relative" x-data="{ open: false }">
+                      <button @click="toggleReactionPicker(msg)" class="p-1 text-gray-400 hover:text-yellow-400 rounded text-sm" title="Add reaction">➕</button>
                       <div x-show="ui.reactionTarget === msg.id" @click.outside="ui.reactionTarget = null"
                            class="absolute right-0 bottom-8 z-50 shadow-2xl rounded-lg overflow-hidden border border-gray-700">
                         <emoji-picker @emoji-click="onReactionSelect($event)" style="height:260px;width:240px;"></emoji-picker>
