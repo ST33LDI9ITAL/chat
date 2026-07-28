@@ -79,10 +79,15 @@
   </style>
 </head>
 
-<body class="h-full font-sans antialiased select-none overflow-hidden" x-data="chatApp()" x-init="initApp()">
+<body class="h-full font-sans antialiased overflow-hidden" x-data="chatApp()" x-init="initApp()">
+
+  <!-- App-Level Error Banner -->
+  <div x-show="appError" class="bg-app-red/90 text-white text-xs text-center py-2 px-4 w-full absolute top-0 left-0 z-[999]">
+    <span x-text="appError"></span>
+  </div>
 
   <!-- Main App Frame -->
-  <div class="flex h-screen w-screen overflow-hidden bg-app-darkBg">
+  <div class="flex h-screen w-screen overflow-hidden bg-app-darkBg" :class="appError ? 'pt-8' : ''">
     
     <!-- 1. LEFT RAIL: SERVER / ROOM SWITCHER -->
     <div class="w-18 bg-[#1e1f22] flex flex-col items-center py-3 space-y-3 border-r border-[#2b2d31]/50 z-20 shrink-0">
@@ -271,6 +276,12 @@
     <!-- 3. CENTER: CHAT AREA & MESSAGES FEED -->
     <div class="flex-1 flex flex-col bg-app-channelBg min-w-0 relative">
       
+      <!-- Connecting Indicator -->
+      <div x-show="ui.connecting" x-transition
+           class="h-8 bg-app-accent/80 text-white text-[11px] font-semibold flex items-center justify-center z-10">
+        <span class="animate-pulse">Connecting to relays...</span>
+      </div>
+
       <!-- Top Channel Bar -->
       <div class="h-12 border-b border-[#1e1f22] px-4 flex items-center justify-between shadow-sm bg-app-channelBg z-10">
         <div class="flex items-center space-x-3 min-w-0">
@@ -610,13 +621,30 @@
   <!-- Media Expand Modal -->
   <div x-show="ui.showMediaModal" x-transition @click="ui.showMediaModal = false"
        class="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4 cursor-pointer">
-    <img :src="ui.mediaModalUrl" class="max-w-full max-h-[90vh] rounded-lg shadow-2xl" />
+    <template x-if="ui.mediaModalType === 'image'">
+      <img :src="ui.mediaModalUrl" class="max-w-full max-h-[90vh] rounded-lg shadow-2xl" />
+    </template>
+    <template x-if="ui.mediaModalType === 'video'">
+      <video controls autoplay class="max-w-full max-h-[90vh] rounded-lg shadow-2xl" @click.stop>
+        <source :src="ui.mediaModalUrl" />
+      </video>
+    </template>
+  </div>
+
+  <!-- Toast Notification -->
+  <div x-show="ui.toast" x-transition
+       class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-[#232428] text-white text-sm px-4 py-2 rounded-lg shadow-2xl border border-gray-700 z-[999] flex items-center space-x-2 pointer-events-none">
+    <i data-lucide="check" class="w-4 h-4 text-app-green"></i>
+    <span x-text="ui.toast"></span>
   </div>
 
   <!-- APPLICATION LOGIC & CRYPTO ENGINE -->
   <script>
     function chatApp() {
       return {
+        // App-level error banner (set when critical dependencies fail)
+        appError: '',
+        
         // App State
         user: {
           sk: null,
@@ -660,6 +688,7 @@
           isSpeaking: false,
           localStream: null,
           localAudioContext: null,
+          remoteAudioContexts: {}, // pubkey -> AudioContext
           peerConnections: {}, // pubkey -> RTCPeerConnection
           peerAudioElements: {} // pubkey -> HTMLAudioElement
         },
@@ -672,9 +701,12 @@
           showEmojiPicker: false,
           showMediaModal: false,
           mediaModalUrl: '',
+          mediaModalType: 'image',
           replyTarget: null,
           newRoomSlug: '',
-          newRoomPass: ''
+          newRoomPass: '',
+          toast: '',
+          connecting: true
         },
 
         // TURN / ICE Config: ExpressTURN (Primary), Public Metered & ProcessOne Fallbacks
@@ -684,11 +716,18 @@
           { urls: "stun:stun.services.mozilla.com" },
           
           // 1. Primary Dedicated Relay: ExpressTURN (Secrets Injected via GitHub Actions)
-          {
-            urls: "%%EXPRESS_TURN_URL%%",
-            username: "%%EXPRESS_TURN_USER%%",
-            credential: "%%EXPRESS_TURN_PASS%%"
-          },
+          // Runtime check: skip placeholder entries that weren't replaced by CI
+          ...((() => {
+            const url = "%%EXPRESS_TURN_URL%%";
+            if (url.startsWith('%%')) return [];
+            return [{
+              urls: url,
+              username: "%%EXPRESS_TURN_USER%%".startsWith('%%') ? '' : "%%EXPRESS_TURN_USER%%",
+              credential: "%%EXPRESS_TURN_PASS%%".startsWith('%%') ? '' : "%%EXPRESS_TURN_PASS%%"
+            }];
+          })()),
+
+          // Fallback ExpressTURN public demo credentials (no guarantee of availability)
           {
             urls: "turn:express.expressturn.com:3478",
             username: "expressturn",
@@ -739,10 +778,17 @@
 
         // APP INIT
         async initApp() {
+          if (!window.NostrTools) {
+            this.appError = 'nostr-tools failed to load. Please reload the page.';
+            return;
+          }
           await this.initUserIdentity();
+          if (this.appError) return;
           this.parseHashRoom();
           await this.updateRoomCryptoKey();
           this.connectRelays();
+          // Clear connecting state after timeout (relay may be unreachable)
+          setTimeout(() => { this.ui.connecting = false; }, 10000);
           this.startHeartbeatLoop();
 
           // Refresh Lucide icons
@@ -755,22 +801,21 @@
         async initUserIdentity() {
           let skHex = sessionStorage.getItem('chat_sk');
           if (!skHex) {
-            if (window.NostrTools && window.NostrTools.generateSecretKey) {
-              const sk = window.NostrTools.generateSecretKey();
-              skHex = Array.from(sk).map(b => b.toString(16).padStart(2, '0')).join('');
-            } else {
-              const randomBytes = window.crypto.getRandomValues(new Uint8Array(32));
-              skHex = Array.from(randomBytes).map(b => b.toString(16).padStart(2, '0')).join('');
+            if (!window.NostrTools || !window.NostrTools.generateSecretKey) {
+              this.appError = 'nostr-tools failed to load. Please reload the page.';
+              return;
             }
+            const sk = window.NostrTools.generateSecretKey();
+            skHex = Array.from(sk).map(b => b.toString(16).padStart(2, '0')).join('');
             sessionStorage.setItem('chat_sk', skHex);
           }
           this.user.sk = skHex;
 
-          if (window.NostrTools && window.NostrTools.getPublicKey) {
-            this.user.pk = window.NostrTools.getPublicKey(this.hexToBytes(skHex));
-          } else {
-            this.user.pk = skHex.substring(0, 32);
+          if (!window.NostrTools || !window.NostrTools.getPublicKey) {
+            this.appError = 'nostr-tools failed to load. Please reload the page.';
+            return;
           }
+          this.user.pk = window.NostrTools.getPublicKey(this.hexToBytes(skHex));
 
           this.user.pubkeyTruncated = this.user.pk.substring(0, 8);
           this.user.name = 'Peer_' + this.user.pubkeyTruncated;
@@ -789,12 +834,17 @@
         // 2. ROOM & CRYPTO KEY DERIVATION (PBKDF2 + AES-GCM)
         parseHashRoom() {
           const hash = window.location.hash.substring(1);
-          const params = new URLSearchParams(hash);
-          const r = params.get('room');
-          const p = params.get('pass');
-          
-          this.room.slug = r || this.personalRoomSlug;
-          this.room.pass = p || '';
+          // Manual parse to handle unencoded characters (URLSearchParams may fail)
+          const params = {};
+          hash.split('&').forEach(pair => {
+            const idx = pair.indexOf('=');
+            if (idx === -1) return;
+            const key = pair.substring(0, idx);
+            const val = pair.substring(idx + 1);
+            if (key) params[decodeURIComponent(key)] = decodeURIComponent(val) || '';
+          });
+          this.room.slug = params.room || this.personalRoomSlug;
+          this.room.pass = params.pass || '';
         },
 
         async updateRoomCryptoKey() {
@@ -843,7 +893,7 @@
 
         copyInviteLink() {
           navigator.clipboard.writeText(window.location.href);
-          alert('Room invite link copied to clipboard!');
+          this.showToast('Invite link copied!');
         },
 
         // Encrypt payload object to AES-GCM hex JSON
@@ -895,7 +945,15 @@
 
             relay.ws.onopen = () => {
               relay.status = 'connected';
+              this.ui.connecting = false;
               this.subscribeRelay(relay);
+
+              // Heartbeat to prevent idle connection drops from load balancers
+              relay._pingInterval = setInterval(() => {
+                if (relay.ws && relay.ws.readyState === WebSocket.OPEN) {
+                  relay.ws.send(JSON.stringify(['PING']));
+                }
+              }, 25000);
             };
 
             relay.ws.onmessage = async (msg) => {
@@ -904,6 +962,10 @@
 
             relay.ws.onclose = () => {
               relay.status = 'disconnected';
+              if (relay._pingInterval) {
+                clearInterval(relay._pingInterval);
+                relay._pingInterval = null;
+              }
               setTimeout(() => this.connectSingleRelay(relay), 5000);
             };
 
@@ -917,7 +979,7 @@
 
         subscribeRelay(relay) {
           if (!relay.ws || relay.ws.readyState !== WebSocket.OPEN) return;
-          const subId = 'sub_' + this.room.slug;
+          const subId = 'sub_' + relay.url.replace(/[^a-zA-Z0-9]/g, '_') + '_' + this.room.slug;
           const filter = {
             kinds: [1, 20000, 25000],
             '#t': [this.room.slug],
@@ -938,18 +1000,15 @@
             kind,
             created_at: Math.floor(Date.now() / 1000),
             tags,
-            content: encryptedContent,
-            pubkey: this.user.pk
+            content: encryptedContent
+            // pubkey is set by finalizeEvent from the secret key
           };
 
-          let signedEvent;
-          if (window.NostrTools && window.NostrTools.finalizeEvent) {
-            signedEvent = window.NostrTools.finalizeEvent(eventTemplate, this.hexToBytes(this.user.sk));
-          } else {
-            // Simplified hash & signature fallback
-            const id = await this.sha256Hex(JSON.stringify(eventTemplate));
-            signedEvent = { ...eventTemplate, id, sig: id };
+          if (!window.NostrTools || !window.NostrTools.finalizeEvent) {
+            console.error('nostr-tools not loaded. Cannot sign events. Sending disabled.');
+            return;
           }
+          const signedEvent = window.NostrTools.finalizeEvent(eventTemplate, this.hexToBytes(this.user.sk));
 
           const msgFrame = JSON.stringify(['EVENT', signedEvent]);
           this.relays.forEach(r => {
@@ -959,13 +1018,26 @@
           });
         },
 
-        async handleRelayMessage(dataStr) {
+        async handleRelayMessage(data) {
           try {
-            const msg = JSON.parse(dataStr);
+            // Handle binary WebSocket frames
+            if (typeof data !== 'string') {
+              data = await new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.readAsText(data);
+              });
+            }
+            const msg = JSON.parse(data);
             if (msg[0] === 'EVENT' && msg[1]) {
               const ev = msg[1];
               if (this.processedEventIds.has(ev.id)) return;
               this.processedEventIds.add(ev.id);
+
+              // Verify Nostr signature: reject forged events
+              if (window.NostrTools && window.NostrTools.verifyEvent && !window.NostrTools.verifyEvent(ev)) {
+                return;
+              }
 
               const decrypted = await this.decryptPayload(ev.content);
               if (!decrypted) return; // Wrong key or corrupt payload
@@ -988,23 +1060,28 @@
         async sendMessage() {
           if (!this.newMessageText.trim()) return;
 
-          const text = this.newMessageText.trim();
-          this.newMessageText = '';
+          try {
+            const text = this.newMessageText.trim();
+            this.newMessageText = '';
 
-          const payload = {
-            type: 'text',
-            text: text,
-            channel: this.activeChannel,
-            author: this.user.name,
-            replyTo: this.ui.replyTarget ? {
-              author: this.ui.replyTarget.author,
-              snippet: this.ui.replyTarget.content.substring(0, 50)
-            } : null
-          };
+            const payload = {
+              type: 'text',
+              text: text,
+              channel: this.activeChannel,
+              author: this.user.name,
+              replyTo: this.ui.replyTarget ? {
+                author: this.ui.replyTarget.author,
+                snippet: this.ui.replyTarget.content.substring(0, 50)
+              } : null
+            };
 
-          this.ui.replyTarget = null;
-          const encrypted = await this.encryptPayload(payload);
-          await this.publishNostrEvent(1, encrypted);
+            this.ui.replyTarget = null;
+            const encrypted = await this.encryptPayload(payload);
+            await this.publishNostrEvent(1, encrypted);
+          } catch (err) {
+            console.error('sendMessage failed:', err);
+            this.showToast('Failed to send message');
+          }
         },
 
         onIncomingChatMessage(ev, payload) {
@@ -1026,10 +1103,21 @@
           this.messages.push(msgObj);
           this.messages.sort((a, b) => a.timestamp - b.timestamp);
 
+          // Debounced icon refresh to avoid DOM rescan on every message
           this.$nextTick(() => {
             const feed = document.getElementById('messageFeed');
-            if (feed) feed.scrollTop = feed.scrollHeight;
-            if (window.lucide) window.lucide.createIcons();
+            if (feed) {
+              const isNearBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 150;
+              if (isNearBottom) {
+                feed.scrollTop = feed.scrollHeight;
+              }
+            }
+            if (!this._iconDebounce) {
+              this._iconDebounce = setTimeout(() => {
+                if (window.lucide) window.lucide.createIcons();
+                this._iconDebounce = null;
+              }, 500);
+            }
           });
         },
 
@@ -1090,8 +1178,13 @@
           }
         },
 
-        openMediaModal(url, type = 'image') {
+        openMediaModal(url, type) {
+          // Determine type from URL extension if not provided
+          if (!type) {
+            type = url.match(/\.(mp4|webm)(\?.*)?$/i) ? 'video' : 'image';
+          }
           this.ui.mediaModalUrl = url;
+          this.ui.mediaModalType = type;
           this.ui.showMediaModal = true;
         },
 
@@ -1138,6 +1231,10 @@
               if (this.voice.peerConnections[pk]) {
                 this.voice.peerConnections[pk].close();
                 delete this.voice.peerConnections[pk];
+              }
+              if (this.voice.remoteAudioContexts[pk]) {
+                this.voice.remoteAudioContexts[pk].close();
+                delete this.voice.remoteAudioContexts[pk];
               }
               delete this.peers[pk];
             }
@@ -1190,7 +1287,7 @@
             });
 
           } catch (err) {
-            alert('Microphone access denied or unavailable: ' + err.message);
+            this.showToast('Microphone access denied or unavailable');
           }
         },
 
@@ -1200,11 +1297,22 @@
             this.voice.localStream = null;
           }
 
+          // Close local audio analyser context
+          if (this.voice.localAudioContext) {
+            this.voice.localAudioContext.close();
+            this.voice.localAudioContext = null;
+          }
+
+          // Close all remote audio analyser contexts
+          Object.values(this.voice.remoteAudioContexts).forEach(ctx => ctx.close());
+          this.voice.remoteAudioContexts = {};
+
           Object.keys(this.voice.peerConnections).forEach(pk => {
             this.voice.peerConnections[pk].close();
             delete this.voice.peerConnections[pk];
           });
 
+          // Broadcast departure BEFORE clearing state so peers see the signal
           this.voice.connected = false;
           this.voice.channel = null;
           this.broadcastPresence();
@@ -1263,13 +1371,40 @@
             }
           };
 
+          // ICE restart on connection failure
+          pc._iceRestarting = false;
+          pc.oniceconnectionstatechange = () => {
+            if (pc.iceConnectionState === 'failed' && !pc._iceRestarting) {
+              pc._iceRestarting = true;
+              setTimeout(async () => {
+                try {
+                  const offer = await pc.createOffer({ iceRestart: true });
+                  await pc.setLocalDescription(offer);
+                  const payload = { type: 'offer', sdp: offer };
+                  const encrypted = await this.encryptPayload(payload);
+                  await this.publishNostrEvent(25000, encrypted, targetPubkey);
+                  pc._iceRestarting = false;
+                } catch (e) {
+                  pc._iceRestarting = false;
+                }
+              }, 2000);
+            }
+          };
+
           pc.ontrack = (e) => {
             const audio = new Audio();
             audio.srcObject = e.streams[0];
+            // Start muted to satisfy browser autoplay policy, then unmute
+            audio.muted = true;
             audio.autoplay = true;
-            audio.muted = this.voice.deafened;
             audio.volume = (this.peers[targetPubkey]?.volume || 100) / 100;
             this.voice.peerAudioElements[targetPubkey] = audio;
+            // Explicit play() to trigger user-gesture-gated playback
+            audio.play().catch(() => {});
+            // Unmute after a short delay if not deafened
+            if (!this.voice.deafened) {
+              setTimeout(() => { audio.muted = false; }, 300);
+            }
 
             this.setupRemoteAudioAnalyser(targetPubkey, e.streams[0]);
           };
@@ -1285,9 +1420,14 @@
           const senderPubkey = ev.pubkey;
 
           if (payload.type === 'offer') {
-            const pc = this.createPeerConnection(senderPubkey);
-            if (this.voice.localStream) {
-              this.voice.localStream.getTracks().forEach(track => pc.addTrack(track, this.voice.localStream));
+            // Reuse existing PC for ICE restart if present
+            let pc = this.voice.peerConnections[senderPubkey];
+            const isIceRestart = !!pc;
+            if (!pc) {
+              pc = this.createPeerConnection(senderPubkey);
+              if (this.voice.localStream) {
+                this.voice.localStream.getTracks().forEach(track => pc.addTrack(track, this.voice.localStream));
+              }
             }
             await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
             
@@ -1332,6 +1472,7 @@
           try {
             const ctx = new (window.AudioContext || window.webkitAudioContext)();
             if (ctx.state === 'suspended') ctx.resume();
+            this.voice.localAudioContext = ctx;
             const source = ctx.createMediaStreamSource(stream);
             const analyser = ctx.createAnalyser();
             analyser.fftSize = 256;
@@ -1358,6 +1499,7 @@
           try {
             const ctx = new (window.AudioContext || window.webkitAudioContext)();
             if (ctx.state === 'suspended') ctx.resume();
+            this.voice.remoteAudioContexts[pubkey] = ctx;
             const source = ctx.createMediaStreamSource(stream);
             const analyser = ctx.createAnalyser();
             analyser.fftSize = 256;
@@ -1366,6 +1508,10 @@
             const data = new Uint8Array(analyser.frequencyBinCount);
             const check = () => {
               if (!this.voice.peerConnections[pubkey]) {
+                if (this.voice.remoteAudioContexts[pubkey]) {
+                  this.voice.remoteAudioContexts[pubkey].close();
+                  delete this.voice.remoteAudioContexts[pubkey];
+                }
                 ctx.close();
                 return;
               }
@@ -1383,6 +1529,11 @@
         },
 
         // UTILS & HELPERS
+        showToast(msg) {
+          this.ui.toast = msg;
+          setTimeout(() => { this.ui.toast = ''; }, 2500);
+        },
+
         async sha256Hex(str) {
           const buf = new TextEncoder().encode(str);
           const digest = await window.crypto.subtle.digest('SHA-256', buf);
@@ -1405,7 +1556,7 @@
           }
           const h1 = Math.abs(hash) % 360;
           const h2 = (h1 + 140) % 360;
-          const svg = `<svg width="40" height="40" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
+          const svg = `<svg width="40" height="40" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Avatar for ${pubkey.substring(0,8)}">
             <defs>
               <linearGradient id="g_${pubkey.substring(0,6)}" x1="0%" y1="0%" x2="100%" y2="100%">
                 <stop offset="0%" stop-color="hsl(${h1}, 75%, 55%)"/>
@@ -1416,7 +1567,7 @@
             <circle cx="20" cy="15" r="7" fill="rgba(255,255,255,0.85)"/>
             <path d="M 8 36 C 8 26, 32 26, 32 36 Z" fill="rgba(255,255,255,0.85)"/>
           </svg>`;
-          return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
+          return 'data:image/svg+xml,' + encodeURIComponent(svg);
         },
 
         formatTime(ms) {

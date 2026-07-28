@@ -64,6 +64,16 @@ Deployable directly to **GitHub Pages** with zero backend infrastructure require
 
 ---
 
+## ⚠️ Known Limitations
+
+- **No Forward Secrecy**: If a room password is compromised, all past messages (within the relay's retention window) can be decrypted. There is no key ratcheting mechanism.
+- **Metadata Leakage**: Room slugs and event kinds (e.g. `kind: 1` for chat, `kind: 25000` for WebRTC signals) are visible to Nostr relay operators and anyone monitoring the relay. Event *content* remains encrypted.
+- **Ephemeral Messages**: Messages are not persisted to localStorage. Reloading the page clears all messages. Relays may or may not store history (typically 1–7 days).
+- **Public TURN Relay Availability**: The fallback TURN servers (ExpressTURN public demo, Metered.ca open relay, ProcessOne) are shared public resources with no SLA. Voice quality and connectivity may vary.
+- **Hardcoded Relays**: The three default Nostr relays (`nos.lol`, `damus.io`, `primal.net`) are hardcoded. There is currently no UI to add or remove relays.
+
+---
+
 ## 🌐 GitHub Pages Deployment
 
 Since the entire application is contained inside `index.html`, deploying to GitHub Pages requires no build step:
@@ -75,6 +85,20 @@ Since the entire application is contained inside `index.html`, deploying to GitH
 5. Your app will be live at `https://st33ldi9ital.github.io/chat/`!
 
 ---
+
+## ☁️ GitHub Secrets (for CI/CD TURN Credentials)
+
+The GitHub Actions workflow (`deploy.yml`) injects ExpressTURN credentials at deploy time.
+Set the following secrets in your GitHub repository at **Settings > Secrets and variables > Actions**:
+
+| Secret | Description |
+|--------|-------------|
+| `EXPRESS_TURN_URL` | ExpressTURN relay URL (e.g. `turn:your-relay.example.com:3478`) |
+| `EXPRESS_TURN_USER` | ExpressTURN username |
+| `EXPRESS_TURN_PASS` | ExpressTURN credential / password |
+
+If these secrets are not set, the app falls back to public ExpressTURN demo credentials
+(no guarantee of availability) and Metered.ca open TURN relays.
 
 ## 📄 License
 
