@@ -887,6 +887,7 @@
 
         // Tracks the source of the current channel config (for debugging/fallback)
         channelConfigSource: 'default', // 'relay' | 'localStorage' | 'default'
+        _pendingConfig: null, // pending channel config from unknown owner (race mitigation)
 
         // UI Controls
         ui: {
@@ -1320,6 +1321,18 @@
           // Cache owner in localStorage
           this.saveRoomOwner(this.room.slug, ev.pubkey);
 
+          // Apply any pending config that arrived before the owner declaration
+          if (this._pendingConfig && this._pendingConfig.pubkey === ev.pubkey) {
+            try {
+              const config = JSON.parse(this._pendingConfig.content);
+              if (config && config.version && Array.isArray(config.textChannels)) {
+                this.applyChannelConfig(config);
+                this.channelConfigSource = 'relay';
+              }
+            } catch (e) {}
+            this._pendingConfig = null;
+          }
+
           console.log('Room owner discovered:', ev.pubkey.substring(0, 8));
         },
 
@@ -1358,7 +1371,13 @@
         // Handle incoming channel config event (kind:30001)
         onIncomingChannelConfigEvent(ev) {
           // Only accept config from the room owner
-          if (!this.room.ownerPubkey || ev.pubkey !== this.room.ownerPubkey) return;
+          if (!this.room.ownerPubkey || ev.pubkey !== this.room.ownerPubkey) {
+            // If we don't know the owner yet but this config looks valid, cache it for later
+            if (!this.room.ownerDiscovered && ev.pubkey) {
+              this._pendingConfig = { pubkey: ev.pubkey, content: ev.content };
+            }
+            return;
+          }
 
           try {
             const config = JSON.parse(ev.content);
