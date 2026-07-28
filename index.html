@@ -1787,6 +1787,33 @@
             }
 
             const encrypted = await this.encryptPayload(payload);
+
+            // Optimistically add message to local state so it appears immediately,
+            // even before the relay echoes it back. The relay echo will be dedup'd.
+            const msgObj = {
+              id: 'local_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8),
+              pubkey: this.user.pk,
+              author: payload.author,
+              avatar: this.getMyAvatar(),
+              content: payload.text,
+              sanitizedHtml: this.parseRichContent(payload.text).text,
+              embeds: this.parseRichContent(payload.text).embeds,
+              channel: payload.channel,
+              timestamp: Date.now(),
+              replyTo: payload.replyTo,
+              reactions: {},
+              isAction: false
+            };
+            this.messages.push(msgObj);
+            this.messages.sort((a, b) => a.timestamp - b.timestamp);
+            this.$nextTick(() => {
+              const feed = document.getElementById('messageFeed');
+              if (feed) {
+                const isNearBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 150;
+                if (isNearBottom) feed.scrollTop = feed.scrollHeight;
+              }
+            });
+
             await this.publishNostrEvent(1, encrypted);
           } catch (err) {
             console.error('sendMessage failed:', err);
