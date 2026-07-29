@@ -654,8 +654,7 @@
 
           <!-- Command Autocomplete Dropdown -->
           <div x-show="ui.showCommandPicker"
-               class="absolute bottom-full left-0 mb-1 w-56 max-h-48 overflow-y-auto bg-[#2b2d31] border border-gray-700 rounded-lg shadow-xl z-50"
-               x-effect="$nextTick(() => { const el = $el.querySelectorAll('div.px-3')[ui.commandSelectedIndex]; if (el) el.scrollIntoView({ block: 'nearest' }); })">
+               class="absolute bottom-full left-0 mb-1 w-56 max-h-48 overflow-y-auto bg-[#2b2d31] border border-gray-700 rounded-lg shadow-xl z-50">
             <template x-for="(cmd, idx) in ui.commandSuggestions" :key="cmd">
               <div class="px-3 py-2 text-xs cursor-pointer flex items-center justify-between"
                    :class="idx === ui.commandSelectedIndex ? 'bg-app-accent/30 text-white' : 'text-gray-300 hover:bg-app-hoverBg hover:text-white'"
@@ -3683,9 +3682,11 @@
           if (event.key === 'ArrowDown') {
             event.preventDefault();
             this.ui.commandSelectedIndex = Math.min(this.ui.commandSelectedIndex + 1, this.ui.commandSuggestions.length - 1);
+            this.$nextTick(() => this._scrollCommandIntoView());
           } else if (event.key === 'ArrowUp') {
             event.preventDefault();
             this.ui.commandSelectedIndex = Math.max(this.ui.commandSelectedIndex - 1, 0);
+            this.$nextTick(() => this._scrollCommandIntoView());
           } else if (event.key === 'Enter' || event.key === 'Tab') {
             if (this.ui.commandSelectedIndex >= 0 && this.ui.commandSuggestions[this.ui.commandSelectedIndex]) {
               event.preventDefault();
@@ -3694,6 +3695,14 @@
           } else if (event.key === 'Escape') {
             this.ui.showCommandPicker = false;
           }
+        },
+
+        _scrollCommandIntoView() {
+          const container = document.querySelector('[x-show="ui.showCommandPicker"]');
+          if (!container) return;
+          const items = container.querySelectorAll('[class*="px-3"]');
+          const el = items[this.ui.commandSelectedIndex];
+          if (el) el.scrollIntoView({ block: 'nearest' });
         },
 
         selectCommand(cmd) {
