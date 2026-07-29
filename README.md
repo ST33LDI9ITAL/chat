@@ -102,7 +102,7 @@ Deployable directly to **GitHub Pages** with zero backend infrastructure require
 - **Metadata Leakage**: Room slugs and event kinds (e.g. `kind: 1` for chat, `kind: 25000` for WebRTC signals) are visible to Nostr relay operators and anyone monitoring the relay. Event *content* remains encrypted.
 - **Ephemeral Messages**: Reloading the page clears room messages (fetched from relays on reconnect). DM conversations persist within the session (sessionStorage). Room config (channels, topic, owner) persists in localStorage.
 - **Public TURN Relay Availability**: The fallback TURN servers (ExpressTURN public demo, Metered.ca open relay, ProcessOne) are shared public resources with no SLA. Voice quality and connectivity may vary.
-- **Hardcoded Relays**: The three default Nostr relays (`nos.lol`, `damus.io`, `primal.net`) are hardcoded. There is currently no UI to add or remove relays.
+- **Hardcoded Relays**: The three default Nostr relays (`relay.nosflare.com`, `nos.lol`, `primal.net`) are hardcoded. There is currently no UI to add or remove relays.
 - **Ownership Race**: If two users join an empty room simultaneously, both may claim ownership. The relay's replaceable event dedup resolves the conflict, but briefly both may see owner UI before resolution.
 
 ---
