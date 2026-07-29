@@ -106,7 +106,8 @@
 
       <!-- Joined / Recent Rooms (scrollable) -->
       <div class="flex-1 overflow-y-auto overflow-x-hidden space-y-2 px-1">
-        <template x-for="r in recentRooms" :key="r.slug">
+        <!-- Skip the personal room (it has its own dedicated icon above) -->
+        <template x-for="r in recentRooms.filter(r => r.slug !== personalRoomSlug)" :key="r.slug">
           <div class="relative group">
             <button @click="switchRoom(r.slug, r.pass || '')" 
                     class="w-12 h-12 rounded-2xl transition-all duration-200 flex items-center justify-center font-bold text-sm"
