@@ -436,7 +436,34 @@
                     <span x-html="msg.sanitizedHtml"></span>
                   </div>
                 </template>
-                <template x-if="!msg.isAction">
+                <!-- Poll messages -->
+                <template x-if="msg.isPoll">
+                  <div class="px-4 py-3 -mx-4">
+                    <div class="bg-[#2b2d31] rounded-lg border border-gray-700/50 p-4 space-y-3">
+                      <div class="flex items-start space-x-3">
+                        <img :src="msg.avatar" class="w-8 h-8 rounded-full bg-gray-700 shrink-0 mt-0.5" />
+                        <div class="flex-1 min-w-0">
+                          <div class="flex items-baseline space-x-2">
+                            <span class="font-semibold text-sm text-gray-100" x-text="msg.author"></span>
+                            <span class="text-[10px] text-gray-500" x-text="formatTime(msg.timestamp)"></span>
+                          </div>
+                          <div class="text-sm text-gray-200 font-semibold mt-1" x-text="msg.content"></div>
+                        </div>
+                      </div>
+                      <div class="space-y-2 pl-11">
+                        <template x-for="opt in msg.poll.options" :key="opt.id">
+                          <button @click="votePoll(msg, opt.id)"
+                                  class="w-full flex items-center justify-between px-3 py-2 rounded text-sm transition border"
+                                  :class="msg.poll.votes && msg.poll.votes[user.pk] === opt.id ? 'bg-app-accent/20 border-app-accent text-white' : 'bg-[#1e1f22] border-gray-700 text-gray-300 hover:border-gray-500'">
+                            <span x-text="opt.text"></span>
+                            <span class="text-xs text-gray-400" x-text="opt.votes + ' vote' + (opt.votes === 1 ? '' : 's')"></span>
+                          </button>
+                        </template>
+                      </div>
+                    </div>
+                  </div>
+                </template>
+                <template x-if="!msg.isAction && !msg.isPoll">
                   <!-- Normal messages: full card with avatar -->
                   <div class="group flex space-x-3 hover:bg-[#2e3035]/40 -mx-4 px-4 py-1.5 rounded transition-colors relative">
                 <img :src="msg.avatar" class="w-10 h-10 rounded-full bg-gray-700 shrink-0 mt-0.5" />
@@ -2023,7 +2050,9 @@
               timestamp: Date.now(),
               replyTo: payload.replyTo,
               reactions: {},
-              isAction: false
+              isAction: false,
+              isPoll: payload.type === 'poll',
+              poll: payload.type === 'poll' ? payload.poll : null
             };
             this.messages.push(msgObj);
             this.messages.sort((a, b) => a.timestamp - b.timestamp);
@@ -2125,6 +2154,14 @@
               this.showToast('MOTD cleared for #' + this.activeChannel);
               break;
 
+            case 'poll':
+              if (args.length < 3) {
+                this.showToast('Usage: /poll "Question?" "Option 1" "Option 2" ... (at least 2 options)');
+                return;
+              }
+              this.sendPollMessage(args[0], args.slice(1));
+              break;
+
             case 'room':
               if (this.room.ownerPubkey !== this.user.pk) {
                 this.showToast('Only the room owner can rename the room');
@@ -2146,6 +2183,52 @@
         },
 
         // Send an action message (/me)
+        // Vote on a poll — tracked locally in the message object
+        votePoll(msg, optionId) {
+          const currentVote = msg.poll.votes && msg.poll.votes[this.user.pk];
+          if (currentVote === optionId) {
+            // Unvote
+            delete msg.poll.votes[this.user.pk];
+            const opt = msg.poll.options.find(o => o.id === optionId);
+            if (opt) opt.votes = Math.max(0, opt.votes - 1);
+          } else {
+            // Remove previous vote if any
+            if (currentVote !== undefined) {
+              const oldOpt = msg.poll.options.find(o => o.id === currentVote);
+              if (oldOpt) oldOpt.votes = Math.max(0, oldOpt.votes - 1);
+            }
+            // Cast new vote
+            if (!msg.poll.votes) msg.poll.votes = {};
+            msg.poll.votes[this.user.pk] = optionId;
+            const newOpt = msg.poll.options.find(o => o.id === optionId);
+            if (newOpt) newOpt.votes++;
+          }
+        },
+
+        async sendPollMessage(question, options) {
+          const pollData = {
+            type: 'poll',
+            question: question,
+            options: options.map((opt, i) => ({ id: i, text: opt, votes: 0 })),
+            votes: {} // pubkey -> optionId
+          };
+          const payload = {
+            type: 'poll',
+            text: question,
+            poll: pollData,
+            channel: this.activeChannel,
+            author: this.user.name,
+            replyTo: null
+          };
+          try {
+            const encrypted = await this.encryptPayload(payload);
+            await this.publishNostrEvent(1, encrypted);
+          } catch (err) {
+            console.error('sendPollMessage failed:', err);
+            this.showToast('Failed to create poll');
+          }
+        },
+
         async sendActionMessage(actionText) {
           const payload = {
             type: 'action',
@@ -2197,6 +2280,7 @@
         onIncomingChatMessage(ev, payload) {
           const parsed = this.parseRichContent(payload.text || '');
           const isAction = payload.type === 'action';
+          const isPoll = payload.type === 'poll';
           const msgObj = {
             id: ev.id,
             pubkey: ev.pubkey,
@@ -2204,13 +2288,15 @@
             // Use broadcast avatar from peers cache if available
             avatar: this.getPeerAvatar(ev.pubkey),
             content: payload.text,
-            sanitizedHtml: isAction ? parsed.text : parsed.text,
-            embeds: parsed.embeds,
+            sanitizedHtml: isPoll ? '' : (isAction ? parsed.text : parsed.text),
+            embeds: isPoll ? [] : parsed.embeds,
             channel: payload.channel || 'general',
             timestamp: ev.created_at * 1000,
             replyTo: payload.replyTo,
             reactions: {},
-            isAction: isAction
+            isAction: isAction,
+            isPoll: isPoll,
+            poll: isPoll ? payload.poll : null
           };
 
           // Check if this message mentions the current user (notification sound)
