@@ -2020,6 +2020,7 @@
               });
             }
             const msg = JSON.parse(data);
+            console.log('RELAY MSG:', JSON.stringify(msg).substring(0,200));
             // Log relay responses for diagnostics
             if (msg[0] === 'OK') {
               console.log('Relay OK:', msg[1].substring(0,12), msg[2] ? 'accepted' : 'REJECTED', (msg[3] || '').substring(0,60));
