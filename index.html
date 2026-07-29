@@ -1547,13 +1547,21 @@
             return;
           }
 
+          // Accept the first external claim as owner
+          if (!this.room.ownerDiscovered && pubkey !== this.user.pk) {
+            this.room.ownerPubkey = pubkey;
+            this.room.ownerDiscovered = true;
+            this._ownerResolvedAt = ts;
+            this.saveRoomOwner(this.room.slug, pubkey);
+            console.log('Owner accepted (first external claim):', pubkey.substring(0, 8), 'at', ts);
+            return;
+          }
+
           // During grace period, collect all claims
           if (!this._ownerClaims) this._ownerClaims = {};
-          // Keep the earliest timestamp per pubkey (first time they claimed)
           if (!this._ownerClaims[pubkey] || ts < this._ownerClaims[pubkey]) {
             this._ownerClaims[pubkey] = ts;
           }
-          console.log('Collected owner claim:', pubkey.substring(0, 8), 'at', ts);
         },
 
         // Compare two claims: true if claimA is better (earlier timestamp, or same ts & lower pubkey)
@@ -1895,7 +1903,7 @@
           }
           const subId = 'sub_' + relay.url.replace(/[^a-zA-Z0-9]/g, '_') + '_' + this.room.slug;
           const filter = {
-            kinds: [1, 20000, 25000, 30000, 30001],
+            kinds: [1, 20000, 25000, 30001],
             '#t': [this.room.slug],
             since: Math.floor(Date.now() / 1000) - 86400
           };
@@ -1982,11 +1990,7 @@
                 return;
               }
 
-              // Room metadata events (unencrypted — public config, no room key needed)
-              if (ev.kind === 30000) {
-                this.onIncomingRoomOwnerEvent(ev);
-                return;
-              }
+              // Room config events (public, no room key needed)
               if (ev.kind === 30001) {
                 this.onIncomingChannelConfigEvent(ev);
                 return;
