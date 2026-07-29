@@ -2435,6 +2435,9 @@
         },
 
         onIncomingChatMessage(ev, payload) {
+          // Skip events we sent ourselves (relay echoes them back)
+          if (ev.pubkey === this.user.pk) return;
+
           // Handle vote events — apply to poll, don't render as message
           if (payload.type === 'vote' && payload.pollId) {
             this.applyVote(payload.pollId, ev.pubkey, payload.optionId, payload.action || 'vote');
