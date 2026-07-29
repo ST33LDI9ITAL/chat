@@ -646,6 +646,7 @@
                    @keydown.enter.prevent="sendMessage()"
                  @input="onMentionInput($event); onCommandInput($event)"
                  @keydown="onMentionKeydown($event); onCommandKeydown($event)"
+                 @keydown.escape="ui.showCommandPicker = false"
                  @blur="onMentionBlur()"
                  @paste="onPaste($event)"
                  :placeholder="activeDM ? 'Message ' + getDMChannelName(activeDM) + '...' : 'Message #' + activeChannel + '...'"
