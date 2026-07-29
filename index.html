@@ -1620,15 +1620,28 @@
             return;
           }
 
-          // Publish our claim and become owner immediately
-          // If another peer already claimed, their event will arrive via subscription
-          // and the post-resolution handler in onIncomingRoomOwnerEvent will switch
+          // Publish our claim
           this.claimRoomOwnership();
-          this.room.ownerPubkey = this.user.pk;
-          this.room.ownerDiscovered = true;
-          this._ownerResolvedAt = Math.floor(Date.now() / 1000);
-          this.saveRoomOwner(this.room.slug, this.user.pk);
-          this.publishChannelConfig();
+
+          // Only claim ownership for our personal room automatically
+          // For joined rooms, wait for owner to be discovered via relay or cache
+          if (this.room.slug === this.personalRoomSlug) {
+            this.room.ownerPubkey = this.user.pk;
+            this.room.ownerDiscovered = true;
+            this._ownerResolvedAt = Math.floor(Date.now() / 1000);
+            this.saveRoomOwner(this.room.slug, this.user.pk);
+            this.publishChannelConfig();
+          } else {
+            // For non-personal rooms, set up a timeout to claim if no owner found
+            setTimeout(() => {
+              if (!this.room.ownerDiscovered) {
+                this.room.ownerPubkey = this.user.pk;
+                this.room.ownerDiscovered = true;
+                this._ownerResolvedAt = Math.floor(Date.now() / 1000);
+                this.saveRoomOwner(this.room.slug, this.user.pk);
+              }
+            }, 6000);
+          }
         },
 
         // Claim ownership of the current room (publish kind:30000)
