@@ -2025,6 +2025,7 @@
 
               // Verify Nostr signature: reject forged events
               if (window.NostrTools && window.NostrTools.verifyEvent && !window.NostrTools.verifyEvent(ev)) {
+                console.warn('verifyEvent failed for', ev.id.substring(0,12), 'kind:', ev.kind, 'pubkey:', ev.pubkey.substring(0,8));
                 return;
               }
 
