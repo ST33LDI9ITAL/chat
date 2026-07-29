@@ -1999,12 +1999,13 @@
             }
             if (msg[0] === 'EVENT' && msg[1]) {
               const ev = msg[1];
+              console.log('RAW EVENT received:', ev.kind, 'from', ev.pubkey.substring(0,8), 'id:', ev.id.substring(0,12));
               if (this.processedEventIds.has(ev.id)) return;
               this.processedEventIds.add(ev.id);
 
               // Verify Nostr signature: reject forged events
               if (window.NostrTools && window.NostrTools.verifyEvent && !window.NostrTools.verifyEvent(ev)) {
-                console.warn('verifyEvent failed for', ev.id.substring(0,12), 'kind:', ev.kind, 'pubkey:', ev.pubkey.substring(0,8));
+                console.warn('verifyEvent FAILED for', ev.id.substring(0,12), 'kind:', ev.kind, 'pubkey:', ev.pubkey.substring(0,8));
                 return;
               }
 
@@ -2038,12 +2039,17 @@
               }
 
               const decrypted = await this.decryptPayload(ev.content);
-              if (!decrypted) return; // Wrong key or corrupt payload
+              if (!decrypted) {
+                console.warn('decryptPayload FAILED for', ev.id.substring(0,12), 'kind:', ev.kind);
+                return; // Wrong key or corrupt payload
+              }
 
               if (ev.kind === 1) {
+                console.log('DISPATCH onIncomingChatMessage for', ev.id.substring(0,12));
                 // Text Message
                 this.onIncomingChatMessage(ev, decrypted);
               } else if (ev.kind === 20000) {
+                console.log('DISPATCH onIncomingPresence for', ev.id.substring(0,12));
                 // Presence Heartbeat
                 this.onIncomingPresence(ev, decrypted);
               } else if (ev.kind === 25000) {
