@@ -1520,7 +1520,7 @@
         },
 
         // Resolve ownership after grace period: pick best claim or claim ourselves
-        _resolveOwnership() {
+        async _resolveOwnership() {
           this._ownerResolveTimer = null;
 
           if (this._ownerClaims && Object.keys(this._ownerClaims).length > 0) {
@@ -1541,8 +1541,13 @@
             return;
           }
 
-          // No claims collected — claim ourselves
-          this.claimRoomOwnership();
+          // No claims collected — publish our claim and become owner
+          await this.claimRoomOwnership();
+          this.room.ownerPubkey = this.user.pk;
+          this.room.ownerDiscovered = true;
+          this._ownerResolvedAt = Math.floor(Date.now() / 1000);
+          this.saveRoomOwner(this.room.slug, this.user.pk);
+          console.log('Owner resolved: no existing claims, became owner');
         },
 
         // Start the grace period for collecting owner claims from relays
