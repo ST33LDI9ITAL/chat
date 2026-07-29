@@ -539,7 +539,7 @@
                             <img :src="embed.url" @click="openMediaModal(embed.url, 'image')" class="max-h-72 rounded-lg border border-gray-800 hover:opacity-95 transition cursor-pointer object-cover" />
                           </template>
                           <template x-if="embed.type === 'video'">
-                            <video controls class="max-h-72 w-full rounded-lg border border-gray-800 bg-black"><source :src="embed.url" /></video>
+                            <video autoplay loop muted playsinline controls class="max-h-72 w-full rounded-lg border border-gray-800 bg-black"><source :src="embed.url" /></video>
                           </template>
                         </div>
                       </template>
@@ -593,7 +593,7 @@
                             <img :src="embed.url" @click="openMediaModal(embed.url, 'image')" class="max-h-72 rounded-lg border border-gray-800 cursor-pointer" />
                           </template>
                           <template x-if="embed.type === 'video'">
-                            <video controls class="max-h-72 w-full rounded-lg border border-gray-800 bg-black"><source :src="embed.url" /></video>
+                            <video autoplay loop muted playsinline controls class="max-h-72 w-full rounded-lg border border-gray-800 bg-black"><source :src="embed.url" /></video>
                           </template>
                         </div>
                       </template>
@@ -2668,9 +2668,15 @@
               return '';
             }
 
-            // Image Match — detect by extension, media CDN, or data URI
-            if (cleanUrl.match(/\.(jpeg|jpg|gif|png|webp)(\?.*)?$/i) || cleanUrl.includes('media.gifbox.me') || cleanUrl.startsWith('data:image/')) {
+            // Image Match — detect by extension or data URI
+            if (cleanUrl.match(/\.(jpeg|jpg|gif|png|webp)(\?.*)?$/i) || cleanUrl.startsWith('data:image/')) {
               embeds.push({ type: 'image', url: cleanUrl });
+              return '';
+            }
+
+            // Media CDN (Gifbox, etc.) — render as video embed
+            if (cleanUrl.includes('media.gifbox.me')) {
+              embeds.push({ type: 'video', url: cleanUrl });
               return '';
             }
 
