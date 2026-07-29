@@ -802,6 +802,16 @@
           <p class="text-[10px] text-gray-500 mt-1">The slug is permanent and cannot be changed. Share the invite link for access.</p>
         </div>
 
+        <!-- Room Topic -->
+        <div>
+          <label class="block text-xs font-bold uppercase text-gray-400 mb-1">Room Topic</label>
+          <div class="flex items-center space-x-2">
+            <input type="text" x-model="ui.roomSettingsTopic" placeholder="Set a channel topic..."
+                   class="flex-1 bg-[#1e1f22] text-sm text-gray-100 p-2.5 rounded border border-gray-700 focus:outline-none focus:ring-1 focus:ring-app-accent" />
+            <button @click="saveRoomSettings()" class="bg-app-accent hover:bg-app-accentHover text-white text-xs font-semibold px-3 py-2.5 rounded transition shrink-0">Save</button>
+          </div>
+        </div>
+
         <!-- Room Password -->
         <div>
           <label class="block text-xs font-bold uppercase text-gray-400 mb-1">Room Encryption Password</label>
@@ -815,14 +825,10 @@
 
         <div class="h-px bg-gray-700"></div>
 
-        <!-- Owner Info -->
-        <div class="text-xs text-gray-400">
-          <span class="font-semibold text-gray-300">Owner:</span>
-          <span class="font-mono" x-text="room.ownerPubkey ? room.ownerPubkey.substring(0, 16) + '...' : 'Unknown'"></span>
-        </div>
-        <div class="text-xs text-gray-400">
-          <span class="font-semibold text-gray-300">Topic:</span>
-          <span x-text="room.topic || '(none)'"></span>
+        <!-- Owner Info (full pubkey, copyable) -->
+        <div class="text-xs text-gray-400 flex items-center space-x-2">
+          <span class="font-semibold text-gray-300 shrink-0">Owner:</span>
+          <span class="font-mono text-[10px] break-all select-all" x-text="room.ownerPubkey || 'Unknown'"></span>
         </div>
       </div>
 
@@ -1030,6 +1036,7 @@
           showRoomSettings: false,
           roomSettingsName: '',
           roomSettingsPass: '',
+          roomSettingsTopic: '',
           showChannelManager: false,
           channelManagerType: 'text', // 'text' or 'voice'
           newChannelName: '',
@@ -2301,8 +2308,10 @@
         },
 
         // Open room settings modal with current values pre-filled
+        // Open room settings modal with current values pre-filled
         openRoomSettings() {
           this.ui.roomSettingsName = this.room.displayName || '';
+          this.ui.roomSettingsTopic = this.room.topic || '';
           this.ui.roomSettingsPass = this.room.pass || '';
           this.ui.showRoomSettings = true;
         },
@@ -2314,10 +2323,16 @@
             this.room.displayName = this.ui.roomSettingsName.trim();
             this.saveRoomDisplayName(this.room.slug, this.room.displayName);
           }
+          // Save topic
+          if (this.ui.roomSettingsTopic !== undefined) {
+            this.room.topic = this.ui.roomSettingsTopic.trim();
+            this.saveRoomTopic(this.room.slug, this.room.topic);
+          }
           // Save password
           const newPass = this.ui.roomSettingsPass.trim();
           if (newPass !== this.room.pass) {
             this.room.pass = newPass;
+            this.room.key = null; // Force re-derivation on next encrypt
             this.updateUrlHash();
             this.showToast(this.room.pass ? 'Room password updated — share new invite link' : 'Room password removed');
           } else {
