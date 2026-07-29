@@ -1730,9 +1730,11 @@
           // Check cache FIRST — if we already know the owner, use it
           const cachedOwner = this.loadRoomOwner(this.room.slug);
           if (cachedOwner) {
-            this.room.ownerPubkey = cachedOwner;
+            const pubkey = typeof cachedOwner === 'string' ? cachedOwner : cachedOwner.pubkey;
+            this.room.ownerPubkey = pubkey;
             this.room.ownerDiscovered = true;
-            console.log('Owner loaded from cache:', cachedOwner.substring(0, 8));
+            this._ownerResolvedAt = (typeof cachedOwner === 'object' && cachedOwner.ts) ? cachedOwner.ts : Math.floor(Date.now() / 1000);
+            console.log('Owner loaded from cache:', pubkey.substring(0, 8));
             return;
           }
 
