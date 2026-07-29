@@ -1098,9 +1098,10 @@
               this.ui.customAvatarUrl = sessionStorage.getItem('chat_avatar_custom') || '';
             }
           } catch (e) {}
-          this.applyAvatarSource();
           this.parseHashRoom();
           await this.updateRoomCryptoKey();
+          // Apply avatar after room key is ready (applyAvatarSource broadcasts presence)
+          this.applyAvatarSource();
           this.loadDMState();
           this.loadRecentRooms();
           this.addRecentRoom(this.room.slug, this.room.pass);
@@ -2995,6 +2996,8 @@
 
         // Generate the appropriate avatar URL based on the selected source
         applyAvatarSource() {
+          // Skip presence broadcast during initial load if room key not ready
+          const skipBroadcast = !this.room.key;
           const source = this.ui.avatarSource;
           switch (source) {
             case 'dicebear':
@@ -3014,7 +3017,7 @@
               }
               break;
           }
-          this.broadcastPresence();
+          if (!skipBroadcast) this.broadcastPresence();
           // Persist avatar source selection
           try { sessionStorage.setItem('chat_avatar_source', source); } catch (e) {}
           try { sessionStorage.setItem('chat_avatar_custom', this.ui.customAvatarUrl || ''); } catch (e) {}
