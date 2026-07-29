@@ -1174,16 +1174,10 @@
 
           // Reset grace period flag for this room (will start when first relay subscribes)
           this._gracePeriodStarted = false;
-          console.log('initApp: room slug =', this.room.slug, 'pass =', this.room.pass ? '***set***' : '(none)');
-          console.log('initApp: personalRoomSlug =', this.personalRoomSlug);
-          console.log('initApp: starting relay connections');
+          console.log('Starting relay connections for room:', this.room.slug);
           this.connectRelays();
-          console.log('initApp: relay connections initiated');
           // Clear connecting state after timeout (relay may be unreachable)
-          setTimeout(() => {
-            console.log('initApp: 10s timeout — relays:', this.relays.map(r => r.url + '=' + r.status));
-            this.ui.connecting = false;
-          }, 10000);
+          setTimeout(() => { this.ui.connecting = false; }, 10000);
           this.startHeartbeatLoop();
 
           // Refresh Lucide icons
@@ -1292,8 +1286,6 @@
         async switchRoom(newSlug, newPass = '') {
           this.room.slug = newSlug;
           this.room.pass = newPass;
-          // Stop polling for the previous room
-          this._stopPolling();
 
           // Track this room in recent rooms
           this.addRecentRoom(newSlug, newPass);
@@ -1603,28 +1595,6 @@
         },
 
         // Query all connected relays for existing owner declarations
-        _queryRoomOwner() {
-          // First, check if we have a cached owner in localStorage
-          const cachedOwner = this.loadRoomOwner(this.room.slug);
-          if (cachedOwner) {
-            this.room.ownerPubkey = cachedOwner;
-            this.room.ownerDiscovered = true;
-            this._ownerResolvedAt = 0;
-            this._ownerClaims = {}; // clear any collected claims
-            console.log('Owner loaded from cache:', cachedOwner.substring(0, 8));
-            // Cancel the grace period timer since we already know the owner
-            if (this._ownerResolveTimer) {
-              clearTimeout(this._ownerResolveTimer);
-              this._ownerResolveTimer = null;
-            }
-            return;
-          }
-
-          // The main subscription already includes kind:1 events with #t filter.
-          // The grace period will collect ownership events from the live subscription feed.
-          // No separate query needed — kind:1 events are reliably delivered via subscription.
-        },
-
         // Start the grace period for collecting owner claims from relays
         // Called when the first relay connects (subscription is active)
         _startOwnerGracePeriod() {
@@ -1648,9 +1618,6 @@
           // Publish our own claim immediately so other peers can discover us
           this.claimRoomOwnership();
 
-          // Explicitly query relays for existing owner declarations
-          this._queryRoomOwner();
-
           // Clear any existing timer
           if (this._ownerResolveTimer) {
             clearTimeout(this._ownerResolveTimer);
@@ -1664,34 +1631,6 @@
           // Start grace period to collect existing owner claims from relays
           this._ownerResolveTimer = setTimeout(() => this._resolveOwnership(), 8000);
           // Start polling for new events (relays may not push via subscription)
-          this._startPolling();
-        },
-
-        // Poll relays for events (some relays don't push via subscriptions, so we poll)
-        _startPolling() {
-          if (this._pollInterval) clearInterval(this._pollInterval);
-          this._lastPollTime = Math.floor(Date.now() / 1000) - 5;
-          this._pollInterval = setInterval(() => {
-            if (!this.room.slug) return;
-            const since = this._lastPollTime;
-            this._lastPollTime = Math.floor(Date.now() / 1000) - 2;
-            const pollId = 'poll_' + this.room.slug.substring(0,8) + '_' + Date.now();
-            const filter = { kinds: [1, 20000, 25000], '#t': [this.room.slug], since, limit: 50 };
-            const msg = JSON.stringify(['REQ', pollId, filter]);
-            this.relays.forEach(r => {
-              if (r.ws?.readyState === WebSocket.OPEN) r.ws.send(msg);
-            });
-            setTimeout(() => {
-              const close = JSON.stringify(['CLOSE', pollId]);
-              this.relays.forEach(r => {
-                if (r.ws?.readyState === WebSocket.OPEN) r.ws.send(close);
-              });
-            }, 2000);
-          }, 2000); // poll every 2 seconds
-        },
-
-        _stopPolling() {
-          if (this._pollInterval) { clearInterval(this._pollInterval); this._pollInterval = null; }
         },
 
         // Claim ownership of the current room (publish kind:30000)
@@ -1919,22 +1858,15 @@
               this.ui.connecting = false;
               this.subscribeRelay(relay);
 
-              // Keep-alive: send a lightweight REQ to prevent idle disconnects
-              // Use a unique sub ID so the relay doesn'\''t confuse it with our main sub
-              relay._pingInterval = setInterval(() => {
-                if (relay.ws && relay.ws.readyState === WebSocket.OPEN) {
-                  relay.ws.send(JSON.stringify(['PING']));
-                }
-              }, 25000);
+              // Keepalive: nostr subscription keeps the connection alive, no need for PING
             };
 
             relay.ws.onmessage = async (msg) => {
               this.handleRelayMessage(msg.data);
             };
 
-            relay.ws.onclose = (e) => {
+            relay.ws.onclose = () => {
               relay.status = 'disconnected';
-              console.warn('WebSocket closed for', relay.url, 'code:', e.code, 'reason:', e.reason);
               if (relay._pingInterval) {
                 clearInterval(relay._pingInterval);
                 relay._pingInterval = null;
@@ -1942,9 +1874,8 @@
               setTimeout(() => this.connectSingleRelay(relay), 5000);
             };
 
-            relay.ws.onerror = (err) => {
+            relay.ws.onerror = () => {
               relay.status = 'disconnected';
-              console.warn('WebSocket error for', relay.url, err);
             };
           } catch (e) {
             relay.status = 'disconnected';
@@ -1959,7 +1890,6 @@
             this._startOwnerGracePeriod();
           }
           const subId = 'sub_' + relay.url.replace(/[^a-zA-Z0-9]/g, '_') + '_' + this.room.slug;
-          console.log('Subscribing to room:', this.room.slug, 'via', relay.url);
           const filter = {
             kinds: [1, 20000, 25000, 30000, 30001],
             '#t': [this.room.slug],
@@ -2020,23 +1950,13 @@
               });
             }
             const msg = JSON.parse(data);
-            console.log('RELAY MSG:', JSON.stringify(msg).substring(0,200));
-            // Log relay responses for diagnostics
-            if (msg[0] === 'OK') {
-              console.log('Relay OK:', msg[1].substring(0,12), msg[2] ? 'accepted' : 'REJECTED', (msg[3] || '').substring(0,60));
-            }
-            if (msg[0] === 'EOSE') {
-              console.log('Relay EOSE for subscription:', msg[1] ? msg[1].substring(0,20) : 'unknown');
-            }
             if (msg[0] === 'EVENT' && msg[2]) {
               const ev = msg[2];
-              console.log('RAW EVENT received:', ev.kind, 'from', ev.pubkey ? ev.pubkey.substring(0,8) : '???', 'id:', ev.id ? ev.id.substring(0,12) : '???');
               if (this.processedEventIds.has(ev.id)) return;
               this.processedEventIds.add(ev.id);
 
               // Verify Nostr signature: reject forged events
               if (window.NostrTools && window.NostrTools.verifyEvent && !window.NostrTools.verifyEvent(ev)) {
-                console.warn('verifyEvent FAILED for', ev.id.substring(0,12), 'kind:', ev.kind, 'pubkey:', ev.pubkey.substring(0,8));
                 return;
               }
 
@@ -2060,7 +1980,6 @@
 
               // Room metadata events (unencrypted — public config, no room key needed)
               if (ev.kind === 30000) {
-                console.log('Received kind:30000 from', ev.pubkey.substring(0,8), 'for room', this.room.slug.substring(0,8));
                 this.onIncomingRoomOwnerEvent(ev);
                 return;
               }
@@ -2070,17 +1989,12 @@
               }
 
               const decrypted = await this.decryptPayload(ev.content);
-              if (!decrypted) {
-                console.warn('decryptPayload FAILED for', ev.id.substring(0,12), 'kind:', ev.kind);
-                return; // Wrong key or corrupt payload
-              }
+              if (!decrypted) return; // Wrong key or corrupt payload
 
               if (ev.kind === 1) {
-                console.log('DISPATCH onIncomingChatMessage for', ev.id.substring(0,12));
                 // Text Message
                 this.onIncomingChatMessage(ev, decrypted);
               } else if (ev.kind === 20000) {
-                console.log('DISPATCH onIncomingPresence for', ev.id.substring(0,12));
                 // Presence Heartbeat
                 this.onIncomingPresence(ev, decrypted);
               } else if (ev.kind === 25000) {
@@ -2718,7 +2632,6 @@
 
         onIncomingPresence(ev, payload) {
           if (ev.pubkey === this.user.pk) return;
-          console.log('Received presence from', ev.pubkey.substring(0, 8), 'name:', payload.name);
           this.peers[ev.pubkey] = {
             pubkey: ev.pubkey,
             name: payload.name || ('Peer_' + ev.pubkey.substring(0, 8)),
