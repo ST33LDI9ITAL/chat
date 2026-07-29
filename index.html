@@ -674,16 +674,32 @@
       </div>
 
       <div class="space-y-4">
+        <!-- Create: auto-generates a random room ID, Join: paste an existing ID -->
         <div>
-          <label class="block text-xs font-bold uppercase text-gray-400 mb-1">Room Slug Name</label>
-          <input type="text" x-model="ui.newRoomSlug" placeholder="e.g. secret-lounge or a3f9e1b0" 
+          <label class="block text-xs font-bold uppercase text-gray-400 mb-1">Room Name (displayed in sidebar)</label>
+          <input type="text" x-model="ui.newRoomName" placeholder="e.g. My Secret Lounge"
                  class="w-full bg-[#1e1f22] text-sm text-gray-100 p-2.5 rounded border border-gray-700 focus:outline-none focus:ring-2 focus:ring-app-accent" />
         </div>
 
         <div>
+          <label class="block text-xs font-bold uppercase text-gray-400 mb-1">
+            Join Existing Room — paste Room ID from invite link
+          </label>
+          <div class="flex items-center space-x-2">
+            <input type="text" x-model="ui.newRoomSlug" placeholder="Paste room ID here to join"
+                   class="flex-1 bg-[#1e1f22] text-sm text-gray-100 p-2.5 rounded border border-gray-700 focus:outline-none focus:ring-2 focus:ring-app-accent font-mono" />
+            <button @click="ui.newRoomName = ''; ui.newRoomSlug = ''" class="text-gray-500 hover:text-white text-xs px-2" title="Clear">✕</button>
+          </div>
+          <p class="text-[10px] text-gray-500 mt-1">Leave blank to create a new room with a random, unguessable ID.</p>
+        </div>
+
+        <div>
           <label class="block text-xs font-bold uppercase text-gray-400 mb-1">Room Encryption Password (Optional)</label>
-          <input type="password" x-model="ui.newRoomPass" placeholder="Leave empty for public unencrypted room" 
-                 class="w-full bg-[#1e1f22] text-sm text-gray-100 p-2.5 rounded border border-gray-700 focus:outline-none focus:ring-2 focus:ring-app-accent" />
+          <div class="flex items-center space-x-2">
+            <input type="password" x-model="ui.newRoomPass" placeholder="Leave empty for public unencrypted room" 
+                   class="flex-1 bg-[#1e1f22] text-sm text-gray-100 p-2.5 rounded border border-gray-700 focus:outline-none focus:ring-2 focus:ring-app-accent" />
+            <button @click="generateRoomPass()" class="text-gray-400 hover:text-white text-xs px-2" title="Generate random password">🎲</button>
+          </div>
           <p class="text-[11px] text-gray-400 mt-1">
             🔑 Passwords derive 256-bit AES-GCM zero-trust keys via 100k PBKDF2 iterations.
           </p>
@@ -693,7 +709,7 @@
       <div class="flex justify-end space-x-3 pt-2">
         <button @click="ui.showRoomModal = false" class="px-4 py-2 text-sm text-gray-300 hover:underline">Cancel</button>
         <button @click="submitSwitchRoom()" class="px-5 py-2 text-sm bg-app-accent hover:bg-app-accentHover text-white font-semibold rounded-md shadow transition">
-          Switch Room
+          Join / Create
         </button>
       </div>
     </div>
@@ -1000,6 +1016,7 @@
           mediaModalUrl: '',
           mediaModalType: 'image',
           replyTarget: null,
+          newRoomName: '',
           newRoomSlug: '',
           newRoomPass: '',
           toast: '',
@@ -1299,9 +1316,30 @@
         },
 
         submitSwitchRoom() {
-          if (!this.ui.newRoomSlug.trim()) return;
-          this.switchRoom(this.ui.newRoomSlug.trim(), this.ui.newRoomPass.trim());
+          // If no slug provided, generate a random unguessable room ID (CUID-like, 24 chars)
+          let slug = this.ui.newRoomSlug.trim();
+          if (!slug) {
+            // Generate random ID: 24 alphanumeric chars (~140 bits entropy)
+            const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+            let result = '';
+            const arr = new Uint8Array(24);
+            window.crypto.getRandomValues(arr);
+            for (let i = 0; i < 24; i++) {
+              result += chars[arr[i] % chars.length];
+            }
+            slug = result;
+          }
+          this.switchRoom(slug, this.ui.newRoomPass.trim());
+          // If a room display name was provided, set it
+          if (this.ui.newRoomName.trim()) {
+            this.room.displayName = this.ui.newRoomName.trim();
+            this.saveRoomDisplayName(slug, this.room.displayName);
+          }
           this.ui.showRoomModal = false;
+          // Clear form fields for next use
+          this.ui.newRoomName = '';
+          this.ui.newRoomSlug = '';
+          this.ui.newRoomPass = '';
         },
 
         copyInviteLink() {
@@ -2227,6 +2265,18 @@
             this.showToast('Room settings saved');
           }
           this.ui.showRoomSettings = false;
+        },
+
+        // Generate a random room password (12 chars, URL-safe)
+        generateRoomPass() {
+          const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+          let result = '';
+          const arr = new Uint8Array(12);
+          window.crypto.getRandomValues(arr);
+          for (let i = 0; i < 12; i++) {
+            result += chars[arr[i] % chars.length];
+          }
+          this.ui.newRoomPass = result;
         },
 
         // Remove a room from the recent rooms sidebar
