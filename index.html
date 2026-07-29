@@ -2028,9 +2028,9 @@
             if (msg[0] === 'EOSE') {
               console.log('Relay EOSE for subscription:', msg[1] ? msg[1].substring(0,20) : 'unknown');
             }
-            if (msg[0] === 'EVENT' && msg[1]) {
-              const ev = msg[1];
-              console.log('RAW EVENT received:', ev.kind, 'from', ev.pubkey.substring(0,8), 'id:', ev.id.substring(0,12));
+            if (msg[0] === 'EVENT' && msg[2]) {
+              const ev = msg[2];
+              console.log('RAW EVENT received:', ev.kind, 'from', ev.pubkey ? ev.pubkey.substring(0,8) : '???', 'id:', ev.id ? ev.id.substring(0,12) : '???');
               if (this.processedEventIds.has(ev.id)) return;
               this.processedEventIds.add(ev.id);
 
