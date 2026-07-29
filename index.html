@@ -641,25 +641,8 @@
           </div>
 
           <div class="space-y-1">
-            <!-- Local User Item -->
-            <div class="flex items-center space-x-2.5 p-1.5 rounded hover:bg-app-hoverBg cursor-pointer">
-              <div class="relative shrink-0">
-                <img :src="user.avatar" class="w-8 h-8 rounded-full bg-gray-700" 
-                     :class="voice.isSpeaking ? 'speaking-glow' : ''" />
-                <div class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-app-green border-2 border-app-sidebarBg"></div>
-              </div>
-              <div class="flex flex-col min-w-0">
-                <div class="flex items-center space-x-1">
-                  <span class="text-xs font-bold text-white truncate" x-text="user.name + ' (You)'"></span>
-                  <span x-show="user.pk === room.ownerPubkey" class="text-[11px] text-yellow-400" title="Room Owner">👑</span>
-                  <span x-show="room.moderators && room.moderators.includes(user.pk)" class="text-[11px] text-blue-400" title="Moderator">🛡</span>
-                </div>
-                <span class="text-[10px] text-app-accent font-semibold" x-text="voice.connected ? '🔊 Voice Connected' : 'Online'"></span>
-              </div>
-            </div>
-
-            <!-- Remote Peers (sorted: owner first, then moderators, then users) -->
-            <template x-for="peer in activePeerList.slice().sort((a, b) => {
+            <!-- All Members (sorted: owner first, then moderators, then users; local user included) -->
+            <template x-for="peer in [user, ...activePeerList].sort((a, b) => {
               const aIsOwner = a.pubkey === room.ownerPubkey ? 0 : 1;
               const bIsOwner = b.pubkey === room.ownerPubkey ? 0 : 1;
               const aIsMod = aIsOwner === 0 ? 0 : (room.moderators && room.moderators.includes(a.pubkey) ? 1 : 2);
@@ -676,14 +659,15 @@
                   </div>
                   <div class="flex flex-col min-w-0 flex-1">
                     <div class="flex items-center space-x-1">
-                      <span class="text-xs font-semibold text-gray-200 truncate" x-text="peer.name"></span>
+                      <span class="text-xs font-semibold text-gray-200 truncate" x-text="peer.pubkey === user.pk ? peer.name + ' (You)' : peer.name"></span>
                       <span x-show="peer.pubkey === room.ownerPubkey" class="text-[11px] text-yellow-400 shrink-0" title="Room Owner">👑</span>
                       <span x-show="room.moderators && room.moderators.includes(peer.pubkey)" class="text-[11px] text-blue-400 shrink-0" title="Moderator">🛡</span>
                     </div>
                     <span class="text-[10px] text-gray-400 font-mono truncate" x-text="'[' + peer.pubkey.substring(0,8) + ']'"></span>
+                    <span class="text-[10px] text-app-accent font-semibold" x-show="peer.pubkey === user.pk" x-text="voice.connected ? '🔊 Voice' : 'Online'"></span>
                   </div>
-                  <!-- Quick DM button -->
-                  <button @click.stop="openDM(peer.pubkey)" class="text-gray-500 hover:text-white p-1 rounded transition opacity-0 group-hover:opacity-100" title="Send DM">
+                  <!-- DM button (not for self) -->
+                  <button x-show="peer.pubkey !== user.pk" @click.stop="openDM(peer.pubkey)" class="text-gray-500 hover:text-white p-1 rounded transition opacity-0 group-hover:opacity-100" title="Send DM">
                     <i data-lucide="message-circle" class="w-3.5 h-3.5"></i>
                   </button>
                 </div>
