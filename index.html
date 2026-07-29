@@ -465,6 +465,14 @@
                               <span class="text-xs text-app-green font-semibold">✅ Downloaded</span>
                             </template>
                           </div>
+                          <!-- Inline video player for completed video transfers -->
+                          <template x-if="msg.fileTransferUrl && msg.fileTransfer?.mimeType?.startsWith('video/')">
+                            <div class="mt-3 max-w-lg">
+                              <video controls class="w-full rounded-lg border border-gray-800 bg-black max-h-72">
+                                <source :src="msg.fileTransferUrl" />
+                              </video>
+                            </div>
+                          </template>
                         </div>
                       </div>
                     </div>
@@ -3422,12 +3430,21 @@
           try {
             const blob = new Blob(transfer.chunks, { type: transfer.info.mimeType || 'application/octet-stream' });
             const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url; a.download = transfer.info.name || 'download';
-            a.click();
-            URL.revokeObjectURL(url);
-            if (msg) msg.fileProgress = 100;
-            this.showToast('Downloaded: ' + (transfer.info.name || 'file'));
+            const isVideo = transfer.info.mimeType?.startsWith('video/');
+            if (isVideo && msg) {
+              // Show inline video in the message
+              msg.fileTransferUrl = url;
+              msg.fileProgress = 100;
+              this.showToast('Video ready: ' + (transfer.info.name || 'file'));
+            } else {
+              // Trigger download for non-video files
+              const a = document.createElement('a');
+              a.href = url; a.download = transfer.info.name || 'download';
+              a.click();
+              URL.revokeObjectURL(url);
+              if (msg) msg.fileProgress = 100;
+              this.showToast('Downloaded: ' + (transfer.info.name || 'file'));
+            }
           } catch (e) {
             console.error('File assembly failed:', e);
             this.showToast('File download failed');
