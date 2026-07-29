@@ -981,7 +981,8 @@
           displayName: '', // human-readable room name (set by owner, separate from slug)
           ownerPubkey: null, // pubkey of the room owner (discovered or claimed)
           ownerDiscovered: false, // true once owner is resolved
-          ownerClaimTimer: null // setTimeout handle for delayed ownership claim
+          ownerClaimTimer: null, // setTimeout handle for delayed ownership claim
+          moderators: [] // pubkeys of users with moderator privileges
         },
         personalRoomSlug: '',
         textChannels: [
@@ -1165,6 +1166,7 @@
           this.loadRecentRooms();
           this.addRecentRoom(this.room.slug, this.room.pass);
           this.room.displayName = this.loadRoomDisplayName(this.room.slug);
+          this.room.moderators = this.loadRoomModerators(this.room.slug);
           // Load cached channel config
           const cachedConfig = this.loadRoomConfig(this.room.slug);
           if (cachedConfig) {
@@ -1302,6 +1304,8 @@
 
           // Load cached display name and channel config
           this.room.topic = ''; // reset — topics are per-channel, loaded on channel switch
+          this.room.motd = '';
+          this.room.moderators = this.loadRoomModerators(newSlug);
           this.room.displayName = this.loadRoomDisplayName(newSlug);
           const cachedConfig = this.loadRoomConfig(newSlug);
           if (cachedConfig) {
@@ -1553,6 +1557,11 @@
         },
 
         // Compare two claims: true if claimA is better (earlier timestamp, or same ts & lower pubkey)
+        // Check if a pubkey is a moderator (delegated by the owner)
+        _isModerator(pubkey) {
+          return this.room.moderators && this.room.moderators.includes(pubkey);
+        },
+
         _isClaimBetter(pubkeyA, tsA, pubkeyB, tsB) {
           if (tsA !== tsB) return tsA < tsB;
           return pubkeyA < pubkeyB; // lexicographic pubkey comparison as tiebreaker
@@ -2162,6 +2171,10 @@
               break;
 
             case 'topic':
+              if (this.room.ownerPubkey !== this.user.pk && !this._isModerator(this.user.pk)) {
+                this.showToast('Only the room owner or moderators can change the topic');
+                return;
+              }
               if (!args.length) {
                 const currentTopic = this.getChannelTopic();
                 this.showToast('Current topic: ' + (currentTopic || '(none)'));
@@ -2169,24 +2182,57 @@
               }
               this.room.topic = args.join(' ');
               this.saveChannelTopic(this.room.slug, this.activeChannel, this.room.topic);
-              this.saveRoomChannels();
+              this._broadcastTopicUpdate(this.activeChannel, this.room.topic);
               this.showToast('Topic set for #' + this.activeChannel);
               break;
 
             case 'motd':
+              if (this.room.ownerPubkey !== this.user.pk && !this._isModerator(this.user.pk)) {
+                this.showToast('Only the room owner or moderators can set the MOTD');
+                return;
+              }
               if (!args.length) {
-                this.showToast('Usage: /motd <message> — sets a pinned message at the top of this channel. Use /motd without args to clear it (coming soon).');
+                this.showToast('Usage: /motd <message>');
                 return;
               }
               this.room.motd = args.join(' ');
               this.saveChannelMotd(this.room.slug, this.activeChannel, this.room.motd);
+              this._broadcastMotdUpdate(this.activeChannel, this.room.motd);
               this.showToast('MOTD set for #' + this.activeChannel);
               break;
 
             case 'clearmotd':
+              if (this.room.ownerPubkey !== this.user.pk && !this._isModerator(this.user.pk)) {
+                this.showToast('Only the room owner or moderators can clear the MOTD');
+                return;
+              }
               this.room.motd = '';
               this.saveChannelMotd(this.room.slug, this.activeChannel, '');
+              this._broadcastMotdUpdate(this.activeChannel, '');
               this.showToast('MOTD cleared for #' + this.activeChannel);
+              break;
+
+            case 'mod':
+              if (this.room.ownerPubkey !== this.user.pk) {
+                this.showToast('Only the room owner can manage moderators');
+                return;
+              }
+              if (!args.length || !args[0]) {
+                this.showToast('Usage: /mod <pubkey> or /mod <pubkey> remove');
+                return;
+              }
+              if (args[1] === 'remove') {
+                this.room.moderators = this.room.moderators.filter(m => m !== args[0]);
+                this.showToast('Moderator removed');
+              } else if (args[1] === 'list') {
+                this.showToast('Moderators: ' + (this.room.moderators.length ? this.room.moderators.join(', ').substring(0, 60) : 'none'));
+              } else {
+                if (!this.room.moderators.includes(args[0])) {
+                  this.room.moderators.push(args[0]);
+                }
+                this.showToast('Moderator added');
+              }
+              this.saveRoomModerators(this.room.slug, this.room.moderators);
               break;
 
             case 'poll':
@@ -2369,6 +2415,22 @@
           // Handle vote events — apply to poll, don't render as message
           if (payload.type === 'vote' && payload.pollId) {
             this.applyVote(payload.pollId, ev.pubkey, payload.optionId, payload.action || 'vote');
+            return;
+          }
+
+          // Handle MOTD and topic updates — apply to local state, don't render as messages
+          if (payload.type === 'motd_update' && payload.channel) {
+            if (payload.channel === this.activeChannel) {
+              this.room.motd = payload.motd || '';
+            }
+            this.saveChannelMotd(this.room.slug, payload.channel, payload.motd || '');
+            return;
+          }
+          if (payload.type === 'topic_update' && payload.channel) {
+            if (payload.channel === this.activeChannel) {
+              this.room.topic = payload.topic || '';
+            }
+            this.saveChannelTopic(this.room.slug, payload.channel, payload.topic || '');
             return;
           }
 
@@ -3292,6 +3354,24 @@
           this.room.motd = this.loadChannelMotd(this.room.slug, channelId);
         },
 
+        // Broadcast MOTD change to all users via encrypted event
+        async _broadcastMotdUpdate(channel, motd) {
+          const payload = { type: 'motd_update', channel, motd };
+          try {
+            const encrypted = await this.encryptPayload(payload);
+            await this.publishNostrEvent(1, encrypted);
+          } catch (e) {}
+        },
+
+        // Broadcast topic change to all users via encrypted event
+        async _broadcastTopicUpdate(channel, topic) {
+          const payload = { type: 'topic_update', channel, topic };
+          try {
+            const encrypted = await this.encryptPayload(payload);
+            await this.publishNostrEvent(1, encrypted);
+          } catch (e) {}
+        },
+
         // Get the topic for the currently active channel
         getChannelTopic() {
           return this.room.topic;
@@ -3380,6 +3460,30 @@
               if (!motds[slug]) motds[slug] = {};
               motds[slug][channelId] = motd;
               sessionStorage.setItem('chat_channel_motds', JSON.stringify(motds));
+            } catch (e2) {}
+          }
+        },
+
+        // Moderators persistence
+        loadRoomModerators(slug) {
+          try {
+            const mods = JSON.parse(localStorage.getItem('chat_room_mods') || '{}');
+            if (mods[slug]) return mods[slug];
+            const sess = JSON.parse(sessionStorage.getItem('chat_room_mods') || '{}');
+            return sess[slug] || [];
+          } catch (e) { return []; }
+        },
+
+        saveRoomModerators(slug, mods) {
+          try {
+            const stored = JSON.parse(localStorage.getItem('chat_room_mods') || '{}');
+            stored[slug] = mods;
+            localStorage.setItem('chat_room_mods', JSON.stringify(stored));
+          } catch (e) {
+            try {
+              const stored = JSON.parse(sessionStorage.getItem('chat_room_mods') || '{}');
+              stored[slug] = mods;
+              sessionStorage.setItem('chat_room_mods', JSON.stringify(stored));
             } catch (e2) {}
           }
         },
