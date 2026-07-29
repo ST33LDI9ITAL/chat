@@ -90,33 +90,42 @@
   <div class="flex h-screen w-screen overflow-hidden bg-app-darkBg" :class="appError ? 'pt-8' : ''">
     
     <!-- 1. LEFT RAIL: SERVER / ROOM SWITCHER -->
-    <div class="w-18 bg-[#1e1f22] flex flex-col items-center py-3 space-y-3 border-r border-[#2b2d31]/50 z-20 shrink-0">
-      <!-- App Brand Icon / Home -->
+    <div class="w-18 bg-[#1e1f22] flex flex-col items-center py-3 border-r border-[#2b2d31]/50 z-20 shrink-0">
+      <!-- App Brand Icon / Personal Room -->
       <button @click="switchRoom(personalRoomSlug)" 
-              class="relative group flex items-center justify-center w-12 h-12 rounded-2xl transition-all duration-200"
+              class="relative group flex items-center justify-center w-12 h-12 rounded-2xl transition-all duration-200 mb-3"
               :class="room.slug === personalRoomSlug ? 'bg-app-accent text-white rounded-2xl' : 'bg-app-sidebarBg text-gray-300 hover:bg-app-accent hover:text-white hover:rounded-2xl'">
         <i data-lucide="message-square" class="w-6 h-6"></i>
-        <!-- Tooltip -->
         <span class="absolute left-16 px-2.5 py-1 bg-black text-white text-xs font-semibold rounded shadow-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none">
-          Personal Room (#<span x-text="personalRoomSlug.substring(0,12)"></span>…)
+          Personal Room
         </span>
       </button>
 
-      <div class="w-8 h-[2px] bg-[#35373c] rounded"></div>
+      <div class="w-8 h-[2px] bg-[#35373c] rounded mb-3"></div>
 
-      <!-- Current Room Indicator -->
-      <div class="relative group">
-        <button class="w-12 h-12 rounded-2xl bg-app-accent/20 border-2 border-app-accent text-app-accent flex items-center justify-center font-bold text-sm shadow-inner">
-          <span x-text="room.slug.substring(0, 3).toUpperCase()"></span>
-        </button>
-        <span class="absolute left-16 px-2.5 py-1 bg-black text-white text-xs font-semibold rounded shadow-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none">
-          Active: #<span x-text="room.slug"></span>
-        </span>
+      <!-- Joined / Recent Rooms (scrollable) -->
+      <div class="flex-1 overflow-y-auto space-y-2 px-1 scrollbar-thin">
+        <template x-for="r in recentRooms" :key="r.slug">
+          <div class="relative group">
+            <button @click="switchRoom(r.slug, r.pass || '')" 
+                    class="w-12 h-12 rounded-2xl transition-all duration-200 flex items-center justify-center font-bold text-sm"
+                    :class="room.slug === r.slug ? 'bg-app-accent text-white rounded-2xl' : 'bg-app-sidebarBg text-gray-400 hover:bg-app-hoverBg hover:text-white hover:rounded-2xl'">
+              <span x-text="r.displayName ? r.displayName.substring(0,2).toUpperCase() : r.slug.substring(0, 3).toUpperCase()"></span>
+            </button>
+            <span class="absolute left-16 px-2.5 py-1 bg-black text-white text-xs font-semibold rounded shadow-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none truncate max-w-[200px]">
+              <span x-text="r.displayName || '#' + r.slug"></span>
+            </span>
+            <!-- Remove room button on hover -->
+            <button @click.stop="removeRecentRoom(r.slug)" 
+                    class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-app-red text-white text-[10px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                    title="Remove from sidebar">✕</button>
+          </div>
+        </template>
       </div>
 
       <!-- Add / Join Room Button -->
       <button @click="ui.showRoomModal = true" 
-              class="group flex items-center justify-center w-12 h-12 rounded-3xl bg-app-sidebarBg text-app-green hover:bg-app-green hover:text-white hover:rounded-2xl transition-all duration-200">
+              class="group flex items-center justify-center w-12 h-12 rounded-3xl bg-app-sidebarBg text-app-green hover:bg-app-green hover:text-white hover:rounded-2xl transition-all duration-200 mt-2 shrink-0">
         <i data-lucide="plus" class="w-6 h-6"></i>
         <span class="absolute left-16 px-2.5 py-1 bg-black text-white text-xs font-semibold rounded shadow-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none">
           Join or Create Room
@@ -124,7 +133,7 @@
       </button>
 
       <!-- Relay Health Indicator -->
-      <div class="mt-auto flex flex-col items-center space-y-2 pb-2">
+      <div class="mt-auto flex flex-col items-center space-y-2 pb-2 shrink-0">
         <div class="relative group cursor-pointer" @click="ui.showProfileModal = true">
           <div class="w-3 h-3 rounded-full"
                :class="connectedRelaysCount > 0 ? 'bg-app-green shadow-[0_0_8px_#23a55a]' : 'bg-app-red animate-pulse'"></div>
@@ -147,9 +156,9 @@
           <!-- Owner badge -->
           <span x-show="room.ownerPubkey === user.pk" class="text-[10px] text-yellow-400 font-bold" title="Room Owner">👑</span>
           <span x-show="room.ownerPubkey && room.ownerPubkey !== user.pk" class="text-[10px] text-gray-500" title="Owned by another user">👑</span>
-          <!-- Rename button (owner only) -->
-          <button x-show="user.pk === room.ownerPubkey" @click="promptRenameRoom()" class="text-gray-500 hover:text-white transition p-0.5 rounded ml-1" title="Rename Room">
-            <i data-lucide="edit" class="w-3.5 h-3.5"></i>
+          <!-- Room Settings button (owner only) -->
+          <button x-show="user.pk === room.ownerPubkey" @click="openRoomSettings()" class="text-gray-500 hover:text-white transition p-0.5 rounded ml-1" title="Room Settings">
+            <i data-lucide="settings" class="w-3 h-3"></i>
           </button>
         </div>
         <button @click="copyInviteLink()" title="Copy Room Invite Link" class="text-gray-400 hover:text-white p-1 rounded hover:bg-app-hoverBg transition">
@@ -742,6 +751,70 @@
     </div>
   </div>
 
+  <!-- Room Settings Modal (owner only) -->
+  <div x-show="ui.showRoomSettings" x-transition @click.self="ui.showRoomSettings = false"
+       class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-app-sidebarBg w-full max-w-md rounded-xl shadow-2xl border border-gray-700 p-6 space-y-5">
+      <div class="flex justify-between items-center border-b border-gray-700 pb-3">
+        <h3 class="text-lg font-bold text-white flex items-center space-x-2">
+          <i data-lucide="settings" class="w-5 h-5 text-app-accent"></i>
+          <span>Room Settings</span>
+        </h3>
+        <button @click="ui.showRoomSettings = false" class="text-gray-400 hover:text-white">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="space-y-4">
+        <!-- Room Display Name -->
+        <div>
+          <label class="block text-xs font-bold uppercase text-gray-400 mb-1">Room Display Name</label>
+          <div class="flex items-center space-x-2">
+            <input type="text" x-model="ui.roomSettingsName" 
+                   class="flex-1 bg-[#1e1f22] text-sm text-gray-100 p-2.5 rounded border border-gray-700 focus:outline-none focus:ring-1 focus:ring-app-accent" />
+            <button @click="saveRoomSettings()" class="bg-app-accent hover:bg-app-accentHover text-white text-xs font-semibold px-3 py-2.5 rounded transition shrink-0">Save</button>
+          </div>
+        </div>
+
+        <!-- Room Slug (read-only) -->
+        <div>
+          <label class="block text-xs font-bold uppercase text-gray-400 mb-1">Room Slug (URL identifier)</label>
+          <div class="bg-[#1e1f22] text-sm text-gray-400 p-2.5 rounded border border-gray-700 font-mono select-all" x-text="'#' + room.slug"></div>
+          <p class="text-[10px] text-gray-500 mt-1">The slug is permanent and cannot be changed. Share the invite link for access.</p>
+        </div>
+
+        <!-- Room Password -->
+        <div>
+          <label class="block text-xs font-bold uppercase text-gray-400 mb-1">Room Encryption Password</label>
+          <div class="flex items-center space-x-2">
+            <input type="password" x-model="ui.roomSettingsPass" placeholder="Leave empty for public room"
+                   class="flex-1 bg-[#1e1f22] text-sm text-gray-100 p-2.5 rounded border border-gray-700 focus:outline-none focus:ring-1 focus:ring-app-accent" />
+            <button @click="saveRoomSettings()" class="bg-app-accent hover:bg-app-accentHover text-white text-xs font-semibold px-3 py-2.5 rounded transition shrink-0">Save</button>
+          </div>
+          <p class="text-[10px] text-gray-500 mt-1">🔑 Changes take effect after reconnecting. Share the new invite link with members.</p>
+        </div>
+
+        <div class="h-px bg-gray-700"></div>
+
+        <!-- Owner Info -->
+        <div class="text-xs text-gray-400">
+          <span class="font-semibold text-gray-300">Owner:</span>
+          <span class="font-mono" x-text="room.ownerPubkey ? room.ownerPubkey.substring(0, 16) + '...' : 'Unknown'"></span>
+        </div>
+        <div class="text-xs text-gray-400">
+          <span class="font-semibold text-gray-300">Topic:</span>
+          <span x-text="room.topic || '(none)'"></span>
+        </div>
+      </div>
+
+      <div class="flex justify-end pt-2">
+        <button @click="ui.showRoomSettings = false" class="px-5 py-2 text-sm bg-app-accent hover:bg-app-accentHover text-white font-semibold rounded-md shadow transition">
+          Close
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- User Profile Settings Modal -->
   <div x-show="ui.showProfileModal" x-transition @click.self="ui.showProfileModal = false"
        class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -915,6 +988,7 @@
         // Tracks the source of the current channel config (for debugging/fallback)
         channelConfigSource: 'default', // 'relay' | 'localStorage' | 'default'
         _pendingConfig: null, // pending channel config from unknown owner (race mitigation)
+        recentRooms: [], // [{slug, pass, displayName, lastSeen}] — rooms joined via switchRoom
 
         // UI Controls
         ui: {
@@ -930,6 +1004,9 @@
           newRoomPass: '',
           toast: '',
           connecting: true,
+          showRoomSettings: false,
+          roomSettingsName: '',
+          roomSettingsPass: '',
           showChannelManager: false,
           channelManagerType: 'text', // 'text' or 'voice'
           newChannelName: '',
@@ -1025,6 +1102,8 @@
           this.parseHashRoom();
           await this.updateRoomCryptoKey();
           this.loadDMState();
+          this.loadRecentRooms();
+          this.addRecentRoom(this.room.slug, this.room.pass);
           this.room.displayName = this.loadRoomDisplayName(this.room.slug);
 
           // Initialize room ownership for the initial room
@@ -1159,6 +1238,9 @@
         async switchRoom(newSlug, newPass = '') {
           this.room.slug = newSlug;
           this.room.pass = newPass;
+
+          // Track this room in recent rooms
+          this.addRecentRoom(newSlug, newPass);
 
           // Reset room ownership state for the new room
           this.room.ownerPubkey = this.loadRoomOwner(newSlug);
@@ -2120,14 +2202,66 @@
           this.ui.showEmojiPicker = false;
         },
 
-        // Prompt room owner to rename the room (edit icon in header)
-        promptRenameRoom() {
-          const name = prompt('Enter a new name for this room:', this.room.displayName || this.room.slug);
-          if (name && name.trim()) {
-            this.room.displayName = name.trim();
+        // Open room settings modal with current values pre-filled
+        openRoomSettings() {
+          this.ui.roomSettingsName = this.room.displayName || '';
+          this.ui.roomSettingsPass = this.room.pass || '';
+          this.ui.showRoomSettings = true;
+        },
+
+        // Save room settings (display name + password) from the Room Settings modal
+        saveRoomSettings() {
+          // Save display name
+          if (this.ui.roomSettingsName && this.ui.roomSettingsName.trim()) {
+            this.room.displayName = this.ui.roomSettingsName.trim();
             this.saveRoomDisplayName(this.room.slug, this.room.displayName);
-            this.showToast('Room renamed to "' + this.room.displayName + '"');
           }
+          // Save password
+          const newPass = this.ui.roomSettingsPass.trim();
+          if (newPass !== this.room.pass) {
+            this.room.pass = newPass;
+            this.updateUrlHash();
+            this.showToast(this.room.pass ? 'Room password updated — share new invite link' : 'Room password removed');
+          } else {
+            this.showToast('Room settings saved');
+          }
+          this.ui.showRoomSettings = false;
+        },
+
+        // Remove a room from the recent rooms sidebar
+        removeRecentRoom(slug) {
+          this.recentRooms = this.recentRooms.filter(r => r.slug !== slug);
+          this.saveRecentRooms();
+        },
+
+        // Add a room to the recent rooms list (or update existing)
+        addRecentRoom(slug, pass) {
+          // Remove existing entry for this slug so we can move it to the top
+          this.recentRooms = this.recentRooms.filter(r => r.slug !== slug);
+          // Add to the front
+          this.recentRooms.unshift({
+            slug: slug,
+            pass: pass || '',
+            displayName: this.room.displayName || ''
+          });
+          // Limit to 10 recent rooms
+          if (this.recentRooms.length > 10) this.recentRooms = this.recentRooms.slice(0, 10);
+          this.saveRecentRooms();
+        },
+
+        // Persist recent rooms to localStorage
+        saveRecentRooms() {
+          try {
+            const data = this.recentRooms.map(r => ({ slug: r.slug, pass: r.pass || '', displayName: r.displayName || '' }));
+            localStorage.setItem('chat_recent_rooms', JSON.stringify(data));
+          } catch (e) {}
+        },
+
+        loadRecentRooms() {
+          try {
+            const data = JSON.parse(localStorage.getItem('chat_recent_rooms') || '[]');
+            this.recentRooms = data;
+          } catch (e) { this.recentRooms = []; }
         },
 
         promptMediaUrl() {
