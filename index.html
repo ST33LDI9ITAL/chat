@@ -1976,6 +1976,10 @@
               });
             }
             const msg = JSON.parse(data);
+            // Log relay OK responses to diagnose publish issues
+            if (msg[0] === 'OK') {
+              console.log('Relay OK:', msg[1].substring(0,12), msg[2] ? 'accepted' : 'REJECTED', msg[3] || '');
+            }
             if (msg[0] === 'EVENT' && msg[1]) {
               const ev = msg[1];
               if (this.processedEventIds.has(ev.id)) return;
