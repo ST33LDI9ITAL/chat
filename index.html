@@ -2665,13 +2665,13 @@
             const ytMatch = cleanUrl.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
             if (ytMatch && ytMatch[1]) {
               embeds.push({ type: 'youtube', id: ytMatch[1], url: cleanUrl });
-              return `<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" class="text-app-accent hover:underline break-all">${cleanUrl}</a>`;
+              return '';
             }
 
-            // Image Match
-            if (cleanUrl.match(/\.(jpeg|jpg|gif|png|webp)(\?.*)?$/i)) {
+            // Image Match — detect by extension, media CDN, or data URI
+            if (cleanUrl.match(/\.(jpeg|jpg|gif|png|webp)(\?.*)?$/i) || cleanUrl.includes('media.gifbox.me') || cleanUrl.startsWith('data:image/')) {
               embeds.push({ type: 'image', url: cleanUrl });
-              return `<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" class="text-app-accent hover:underline break-all">${cleanUrl}</a>`;
+              return '';
             }
 
             // File link (TempFile.org) — render with download styling
@@ -2681,10 +2681,10 @@
               </a>`;
             }
 
-            // Video Match
+            // Video Match — detect by extension
             if (cleanUrl.match(/\.(mp4|webm)(\?.*)?$/i)) {
               embeds.push({ type: 'video', url: cleanUrl });
-              return `<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" class="text-app-accent hover:underline break-all">${cleanUrl}</a>`;
+              return '';
             }
 
             return `<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" class="text-app-accent hover:underline break-all">${cleanUrl}</a>`;
