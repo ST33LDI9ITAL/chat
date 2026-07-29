@@ -1528,6 +1528,10 @@
         onIncomingRoomOwnerEvent(ev) {
           const pubkey = ev.pubkey;
           const ts = ev.created_at;
+          // Only log external events (not our own echo) to reduce noise
+          if (pubkey !== this.user.pk) {
+            console.log('Collecting external owner claim from', pubkey.substring(0,8), 'at', ts);
+          }
 
           // If we already have a resolved owner, still check if this incoming claim is strictly better
           if (this.room.ownerDiscovered && this.room.ownerPubkey) {
@@ -1601,7 +1605,6 @@
           const ownerFilter = {
             kinds: [30000],
             '#t': [this.room.slug],
-            '#d': [this.room.slug],
             limit: 10
           };
           const queryId = 'ownerq_' + this.room.slug.substring(0, 8);
@@ -2003,6 +2006,7 @@
 
               // Room metadata events (unencrypted — public config, no room key needed)
               if (ev.kind === 30000) {
+                console.log('Received kind:30000 from', ev.pubkey.substring(0,8), 'for room', this.room.slug.substring(0,8));
                 this.onIncomingRoomOwnerEvent(ev);
                 return;
               }
