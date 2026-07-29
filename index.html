@@ -634,13 +634,7 @@
 
       <div class="flex-1 overflow-y-auto p-3 space-y-4">
         
-        <!-- Online Section -->
-        <div>
-          <div class="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">
-            Online — <span x-text="activePeerList.length + 1"></span>
-          </div>
-
-          <div class="space-y-1">
+        <div class="space-y-1">
             <!-- All Members (sorted: owner first, then moderators, then users; local user included) -->
             <template x-for="peer in [user, ...activePeerList].sort((a, b) => {
               const aIsOwner = a.pubkey === room.ownerPubkey ? 0 : 1;
