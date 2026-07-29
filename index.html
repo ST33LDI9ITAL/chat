@@ -696,9 +696,16 @@
               <div class="flex-1 overflow-y-auto p-2 grid grid-cols-2 gap-2" x-ref="gifGrid"
                    @scroll="const el = $el; if (el.scrollTop + el.clientHeight >= el.scrollHeight - 100) loadMoreGifs()">
                 <template x-for="gif in ui.gifResults" :key="gif.id">
-                  <img :src="gif.preview || gif.url" @click="insertGif(gif.url)"
-                       class="w-full rounded cursor-pointer hover:opacity-80 transition object-cover"
-                       style="aspect-ratio: 1" loading="lazy" />
+                  <div class="relative w-full" style="aspect-ratio: 1"
+                       @mouseenter="$el.querySelector('video').src = gif.url; $el.querySelector('video').play()"
+                       @mouseleave="$el.querySelector('video').src = ''; $el.querySelector('video').pause()">
+                    <img :src="gif.preview || gif.url" @click="insertGif(gif.url)"
+                         class="w-full h-full rounded cursor-pointer hover:opacity-80 transition object-cover absolute inset-0"
+                         loading="lazy" />
+                    <video autoplay loop muted playsinline
+                           class="w-full h-full rounded cursor-pointer hover:opacity-80 transition object-cover absolute inset-0"
+                           @click="insertGif(gif.url)"></video>
+                  </div>
                 </template>
                 <template x-if="_gifLoadingMore">
                   <div class="col-span-2 text-center text-gray-500 text-xs py-4">Loading more...</div>
