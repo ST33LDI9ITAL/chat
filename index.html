@@ -391,6 +391,14 @@
               This is the start of the <span x-text="'#' + activeChannel"></span> channel in room <strong class="text-app-accent" x-text="room.displayName || '#' + room.slug"></strong>.
             </p>
           </div>
+
+          <!-- MOTD Banner (pinned message) -->
+          <template x-if="!activeDM && room.motd">
+            <div class="border border-yellow-600/30 bg-yellow-600/10 rounded-lg px-4 py-3 mb-4 flex items-start space-x-2">
+              <span class="text-yellow-400 text-lg shrink-0 mt-0.5">📌</span>
+              <div class="text-sm text-gray-200 break-words leading-relaxed" x-html="renderMotd()"></div>
+            </div>
+          </template>
         </template>
 
         <!-- DM Welcome -->
@@ -803,16 +811,6 @@
           <p class="text-[10px] text-gray-500 mt-1">The slug is permanent and cannot be changed. Share the invite link for access.</p>
         </div>
 
-        <!-- Channel Topic (per channel) -->
-        <div>
-          <label class="block text-xs font-bold uppercase text-gray-400 mb-1">Channel Topic (for #<span x-text="activeChannel"></span>)</label>
-          <div class="flex items-center space-x-2">
-            <input type="text" x-model="ui.roomSettingsTopic" placeholder="Set a channel topic..."
-                   class="flex-1 bg-[#1e1f22] text-sm text-gray-100 p-2.5 rounded border border-gray-700 focus:outline-none focus:ring-1 focus:ring-app-accent" />
-            <button @click="saveRoomSettings()" class="bg-app-accent hover:bg-app-accentHover text-white text-xs font-semibold px-3 py-2.5 rounded transition shrink-0">Save</button>
-          </div>
-        </div>
-
         <!-- Room Password -->
         <div>
           <label class="block text-xs font-bold uppercase text-gray-400 mb-1">Room Encryption Password</label>
@@ -952,6 +950,7 @@
           pass: '',
           key: null,
           topic: '', // topic for the active channel, set via /topic command
+          motd: '', // message of the day (pinned) for the active channel
           displayName: '', // human-readable room name (set by owner, separate from slug)
           ownerPubkey: null, // pubkey of the room owner (discovered or claimed)
           ownerDiscovered: false, // true once owner is resolved
@@ -1037,7 +1036,7 @@
           showRoomSettings: false,
           roomSettingsName: '',
           roomSettingsPass: '',
-          roomSettingsTopic: '',
+
           showChannelManager: false,
           channelManagerType: 'text', // 'text' or 'voice'
           newChannelName: '',
@@ -1142,8 +1141,9 @@
           if (cachedConfig) {
             this.applyChannelConfig(cachedConfig);
           }
-          // Load topic for the default (first) channel
+          // Load topic and motd for the default (first) channel
           this.room.topic = this.loadChannelTopic(this.room.slug, this.activeChannel);
+          this.room.motd = this.loadChannelMotd(this.room.slug, this.activeChannel);
 
           // Reset grace period flag for this room (will start when first relay subscribes)
           this._gracePeriodStarted = false;
@@ -2105,7 +2105,24 @@
               }
               this.room.topic = args.join(' ');
               this.saveChannelTopic(this.room.slug, this.activeChannel, this.room.topic);
+              this.saveRoomChannels();
               this.showToast('Topic set for #' + this.activeChannel);
+              break;
+
+            case 'motd':
+              if (!args.length) {
+                this.showToast('Usage: /motd <message> — sets a pinned message at the top of this channel. Use /motd without args to clear it (coming soon).');
+                return;
+              }
+              this.room.motd = args.join(' ');
+              this.saveChannelMotd(this.room.slug, this.activeChannel, this.room.motd);
+              this.showToast('MOTD set for #' + this.activeChannel);
+              break;
+
+            case 'clearmotd':
+              this.room.motd = '';
+              this.saveChannelMotd(this.room.slug, this.activeChannel, '');
+              this.showToast('MOTD cleared for #' + this.activeChannel);
               break;
 
             case 'room':
@@ -2315,7 +2332,6 @@
         // Open room settings modal with current values pre-filled
         openRoomSettings() {
           this.ui.roomSettingsName = this.room.displayName || '';
-          this.ui.roomSettingsTopic = this.getChannelTopic() || '';
           this.ui.roomSettingsPass = this.room.pass || '';
           this.ui.showRoomSettings = true;
         },
@@ -2326,11 +2342,6 @@
           if (this.ui.roomSettingsName && this.ui.roomSettingsName.trim()) {
             this.room.displayName = this.ui.roomSettingsName.trim();
             this.saveRoomDisplayName(this.room.slug, this.room.displayName);
-          }
-          // Save topic (per-channel)
-          if (this.ui.roomSettingsTopic !== undefined) {
-            this.room.topic = this.ui.roomSettingsTopic.trim();
-            this.saveChannelTopic(this.room.slug, this.activeChannel, this.room.topic);
           }
           // Save password
           const newPass = this.ui.roomSettingsPass.trim();
@@ -3045,11 +3056,17 @@
           this.activeChannel = channelId;
           this.activeDM = null;
           this.room.topic = this.loadChannelTopic(this.room.slug, channelId);
+          this.room.motd = this.loadChannelMotd(this.room.slug, channelId);
         },
 
         // Get the topic for the currently active channel
         getChannelTopic() {
           return this.room.topic;
+        },
+
+        // Render MOTD with HTML sanitization (reuse parseRichContent for link handling)
+        renderMotd() {
+          return this.parseRichContent(this.room.motd).text;
         },
 
         // Load a specific channel'\''s topic for a room
@@ -3101,6 +3118,35 @@
               const names = JSON.parse(sessionStorage.getItem('chat_room_names') || '{}');
               names[slug] = name;
               sessionStorage.setItem('chat_room_names', JSON.stringify(names));
+            } catch (e2) {}
+          }
+        },
+
+        // Load the MOTD (Message of the Day) for a specific channel
+        loadChannelMotd(slug, channelId) {
+          try {
+            const motds = JSON.parse(localStorage.getItem('chat_channel_motds') || '{}');
+            const roomMotds = motds[slug];
+            if (roomMotds && roomMotds[channelId]) return roomMotds[channelId];
+            const sess = JSON.parse(sessionStorage.getItem('chat_channel_motds') || '{}');
+            const sRoom = sess[slug];
+            return (sRoom && sRoom[channelId]) || '';
+          } catch (e) { return ''; }
+        },
+
+        saveChannelMotd(slug, channelId, motd) {
+          if (!slug || !channelId) return;
+          try {
+            const motds = JSON.parse(localStorage.getItem('chat_channel_motds') || '{}');
+            if (!motds[slug]) motds[slug] = {};
+            motds[slug][channelId] = motd;
+            localStorage.setItem('chat_channel_motds', JSON.stringify(motds));
+          } catch (e) {
+            try {
+              const motds = JSON.parse(sessionStorage.getItem('chat_channel_motds') || '{}');
+              if (!motds[slug]) motds[slug] = {};
+              motds[slug][channelId] = motd;
+              sessionStorage.setItem('chat_channel_motds', JSON.stringify(motds));
             } catch (e2) {}
           }
         },
