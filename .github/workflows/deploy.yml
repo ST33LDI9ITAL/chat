@@ -41,6 +41,8 @@ jobs:
           GIFBOX_KEY="${{ secrets.GIFBOX_API_KEY }}"
           if [ -n "$GIFBOX_KEY" ]; then
             sed -i "s|_gifboxKey: ''|_gifboxKey: '${GIFBOX_KEY}'|g" index.html
+            echo "=== GIF key injection check ==="
+            grep "_gifboxKey:" index.html
           fi
 
       - name: Setup Pages
