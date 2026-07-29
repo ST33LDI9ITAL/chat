@@ -1095,12 +1095,9 @@
             }];
           })()),
 
-          // Fallback ExpressTURN public demo credentials (no guarantee of availability)
-          {
-            urls: "turn:express.expressturn.com:3478",
-            username: "expressturn",
-            credential: "expressturn"
-          },
+          // ExpressTURN free tier (sign up at expressturn.com for dedicated credentials)
+          // The CI pipeline injects your credentials via GitHub Secrets above.
+          // For local dev, skip the ExpressTURN entries and use the public fallbacks below.
 
           // 2. Secondary Public Relays: Metered OpenRelay (Public Free Pool)
           {
