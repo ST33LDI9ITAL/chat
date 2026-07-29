@@ -2536,6 +2536,18 @@
         },
 
         addReaction(msg, emoji) {
+          // Track who reacted per-emojiphper-user to prevent spam-clicking
+          if (!msg._reactionVoters) msg._reactionVoters = {};
+          if (!msg._reactionVoters[emoji]) msg._reactionVoters[emoji] = new Set();
+          const voters = msg._reactionVoters[emoji];
+          if (voters.has(this.user.pk)) {
+            // Already voted — unvote
+            voters.delete(this.user.pk);
+            msg.reactions[emoji] = (msg.reactions[emoji] || 1) - 1;
+            if (msg.reactions[emoji] <= 0) delete msg.reactions[emoji];
+            return;
+          }
+          voters.add(this.user.pk);
           if (!msg.reactions[emoji]) msg.reactions[emoji] = 0;
           msg.reactions[emoji]++;
         },
