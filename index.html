@@ -184,18 +184,20 @@
             </div>
           </div>
           <template x-for="ch in textChannels" :key="ch.id">
-            <button @click="activeChannel = ch.id; activeDM = null"
-                    class="w-full flex items-center px-2 py-1.5 rounded text-sm font-medium transition-colors group"
-                    :class="activeChannel === ch.id && !activeDM ? 'bg-app-activeBg text-white' : 'text-gray-400 hover:bg-app-hoverBg hover:text-gray-200'">
-              <span class="text-gray-400 text-base mr-2">#</span>
-              <span x-text="ch.name" class="truncate"></span>
-              <span x-show="ch.unread" class="ml-auto w-2 h-2 rounded-full bg-app-accent"></span>
+            <div class="flex items-center w-full">
+              <button @click="activeChannel = ch.id; activeDM = null"
+                      class="flex-1 flex items-center px-2 py-1.5 rounded text-sm font-medium transition-colors group min-w-0"
+                      :class="activeChannel === ch.id && !activeDM ? 'bg-app-activeBg text-white' : 'text-gray-400 hover:bg-app-hoverBg hover:text-gray-200'">
+                <span class="text-gray-400 text-base mr-2 shrink-0">#</span>
+                <span x-text="ch.name" class="truncate"></span>
+                <span x-show="ch.unread" class="ml-auto w-2 h-2 rounded-full bg-app-accent shrink-0"></span>
+              </button>
               <!-- Owner: remove button on hover -->
               <button x-show="user.pk === room.ownerPubkey" @click.stop="removeTextChannel(ch.id)"
-                      class="ml-1 opacity-0 group-hover:opacity-100 text-gray-500 hover:text-app-red transition shrink-0" title="Remove channel">
+                      class="ml-1 opacity-0 group-hover:opacity-100 text-gray-500 hover:text-app-red transition shrink-0 p-1 rounded" title="Remove channel">
                 <i data-lucide="x" class="w-3 h-3"></i>
               </button>
-            </button>
+            </div>
           </template>
         </div>
 
