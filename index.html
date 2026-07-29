@@ -687,7 +687,10 @@
                        class="w-full rounded cursor-pointer hover:opacity-80 transition object-cover"
                        style="aspect-ratio: 1" loading="lazy" />
                 </template>
-                <template x-if="!ui.gifLoading && ui.gifQuery && ui.gifResults.length === 0">
+                <template x-if="!ui.gifLoading && !_gifboxKey">
+                  <div class="col-span-2 text-center text-gray-500 text-xs py-8">No GIF API key configured</div>
+                </template>
+                <template x-if="!ui.gifLoading && _gifboxKey && ui.gifQuery && ui.gifResults.length === 0">
                   <div class="col-span-2 text-center text-gray-500 text-xs py-8">No GIFs found</div>
                 </template>
               </div>
@@ -2883,10 +2886,6 @@
         },
 
         toggleGifPicker() {
-          if (!this._gifboxKey) {
-            window.open('https://gifbox.me', '_blank');
-            return;
-          }
           this.ui.showGifPicker = !this.ui.showGifPicker;
           if (this.ui.showGifPicker) {
             this.ui.gifQuery = '';
@@ -2896,7 +2895,11 @@
 
         async searchGifs() {
           const query = this.ui.gifQuery.trim();
-          if (!query || !this._gifboxKey) { this.ui.gifResults = []; return; }
+          if (!query) { this.ui.gifResults = []; return; }
+          if (!this._gifboxKey) {
+            this.ui.gifResults = [];
+            return;
+          }
           this.ui.gifLoading = true;
           try {
             const key = this._gifboxKey;
