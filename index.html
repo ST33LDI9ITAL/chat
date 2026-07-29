@@ -1292,6 +1292,8 @@
         async switchRoom(newSlug, newPass = '') {
           this.room.slug = newSlug;
           this.room.pass = newPass;
+          // Stop polling for the previous room
+          this._stopPolling();
 
           // Track this room in recent rooms
           this.addRecentRoom(newSlug, newPass);
@@ -1660,8 +1662,36 @@
           }
 
           // Start grace period to collect existing owner claims from relays
-          // Extended to 8s to allow for relay propagation delays
           this._ownerResolveTimer = setTimeout(() => this._resolveOwnership(), 8000);
+          // Start polling for new events (relays may not push via subscription)
+          this._startPolling();
+        },
+
+        // Poll relays for events (some relays don't push via subscriptions, so we poll)
+        _startPolling() {
+          if (this._pollInterval) clearInterval(this._pollInterval);
+          this._lastPollTime = Math.floor(Date.now() / 1000) - 5;
+          this._pollInterval = setInterval(() => {
+            if (!this.room.slug) return;
+            const since = this._lastPollTime;
+            this._lastPollTime = Math.floor(Date.now() / 1000) - 2;
+            const pollId = 'poll_' + this.room.slug.substring(0,8) + '_' + Date.now();
+            const filter = { kinds: [1, 20000, 25000], '#t': [this.room.slug], since, limit: 50 };
+            const msg = JSON.stringify(['REQ', pollId, filter]);
+            this.relays.forEach(r => {
+              if (r.ws?.readyState === WebSocket.OPEN) r.ws.send(msg);
+            });
+            setTimeout(() => {
+              const close = JSON.stringify(['CLOSE', pollId]);
+              this.relays.forEach(r => {
+                if (r.ws?.readyState === WebSocket.OPEN) r.ws.send(close);
+              });
+            }, 2000);
+          }, 5000);
+        },
+
+        _stopPolling() {
+          if (this._pollInterval) { clearInterval(this._pollInterval); this._pollInterval = null; }
         },
 
         // Claim ownership of the current room (publish kind:30000)
