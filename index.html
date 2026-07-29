@@ -641,14 +641,21 @@
           <input type="file" id="fileTransferInput" class="hidden" @change="onFilePicked($event)" />
 
           <!-- Input Textarea (supports paste for images) -->
-          <input type="text" x-model="newMessageText"
-                 @keydown.enter.prevent="sendMessage()"
+          <div class="relative flex-1">
+            <!-- Corrected command hint -->
+            <div x-show="ui.correctedCommand" x-transition
+                 class="absolute bottom-full left-0 mb-1 text-[10px] text-purple-400 font-semibold bg-[#1e1f22] px-2 py-0.5 rounded border border-purple-500/30 whitespace-nowrap">
+              ➡️ /<span x-text="ui.correctedCommand"></span>
+            </div>
+            <input type="text" x-model="newMessageText"
+                   @keydown.enter.prevent="sendMessage()"
                  @input="onMentionInput($event)"
                  @keydown="onMentionKeydown($event)"
                  @blur="onMentionBlur()"
                  @paste="onPaste($event)"
                  :placeholder="activeDM ? 'Message ' + getDMChannelName(activeDM) + '...' : 'Message #' + activeChannel + '...'"
                  class="w-full bg-transparent text-sm text-gray-100 placeholder-gray-500 focus:outline-none" />
+          </div>
 
           <!-- Hidden file input for drag-and-drop images -->
           <input type="file" id="fileInput" accept="image/*" multiple class="hidden" @change="onFileSelect($event)" />
@@ -1133,6 +1140,7 @@
           showRoomModal: false,
           showProfileModal: false,
           showEmojiPicker: false,
+          correctedCommand: '',
           showGifPicker: false,
           gifQuery: '',
           gifResults: [],
@@ -2262,7 +2270,9 @@
               .sort((a, b) => b.score - a.score);
             if (best.length > 0) {
               cmd = best[0].cmd;
-              this.showToast('➡️ /' + cmd);
+              // Set corrected command hint briefly
+              this.ui.correctedCommand = cmd;
+              setTimeout(() => { this.ui.correctedCommand = ''; }, 1500);
             }
           }
 
