@@ -1174,6 +1174,8 @@
 
           // Reset grace period flag for this room (will start when first relay subscribes)
           this._gracePeriodStarted = false;
+          console.log('initApp: room slug =', this.room.slug, 'pass =', this.room.pass ? '***set***' : '(none)');
+          console.log('initApp: personalRoomSlug =', this.personalRoomSlug);
           console.log('initApp: starting relay connections');
           this.connectRelays();
           console.log('initApp: relay connections initiated');
@@ -1641,7 +1643,7 @@
           if (!this._ownerClaims) this._ownerClaims = {};
           this._ownerClaims[this.user.pk] = now;
 
-          console.log('Claimed room ownership at', now);
+          console.log('Claimed room ownership for', this.room.slug, 'at', now);
           await this.publishChannelConfig();
         },
 
@@ -1869,6 +1871,7 @@
             this._startOwnerGracePeriod();
           }
           const subId = 'sub_' + relay.url.replace(/[^a-zA-Z0-9]/g, '_') + '_' + this.room.slug;
+          console.log('Subscribing to room:', this.room.slug, 'via', relay.url);
           const filter = {
             kinds: [1, 20000, 25000, 30000, 30001],
             '#t': [this.room.slug],
