@@ -382,9 +382,6 @@
         <!-- Room Channel Welcome -->
         <template x-if="!activeDM">
           <div class="border-b border-gray-700/50 pb-4 mb-4">
-            <div class="w-12 h-12 rounded-full bg-app-accent/20 flex items-center justify-center text-app-accent mb-2">
-              <i data-lucide="hash" class="w-7 h-7"></i>
-            </div>
             <h2 class="text-2xl font-bold text-white" x-text="'Welcome to #' + activeChannel + '!'"></h2>
             <p class="text-xs text-gray-400 mt-1">
               This is the start of the <span x-text="'#' + activeChannel"></span> channel in room <strong class="text-app-accent" x-text="room.displayName || '#' + room.slug"></strong>.
