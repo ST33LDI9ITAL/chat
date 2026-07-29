@@ -3067,12 +3067,15 @@
         onIncomingPresence(ev, payload) {
           // Skip own events (relay echoes them back)
           if (ev.pubkey === this.user.pk) return;
+          // Use event's created_at for lastSeen so old relay replays don't
+          // make stale peers appear active (use current time as floor)
+          const evTime = ev.created_at ? ev.created_at * 1000 : Date.now();
           this.peers[ev.pubkey] = {
             pubkey: ev.pubkey,
             name: payload.name || ('Peer_' + ev.pubkey.substring(0, 8)),
             // Use broadcast avatar URL if provided, fall back to identicon
             avatar: payload.avatar || this.generateIdenticonSvg(ev.pubkey),
-            lastSeen: Date.now(),
+            lastSeen: Math.max(evTime, Date.now() - 60000),
             inVoice: !!payload.inVoice,
             channel: payload.channel || null,
             muted: !!payload.muted,
