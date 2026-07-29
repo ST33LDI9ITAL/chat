@@ -435,6 +435,42 @@
                   </div>
                 </template>
                 <!-- Poll messages -->
+                <!-- File transfer offer -->
+                <template x-if="msg.isFileOffer">
+                  <div class="px-4 py-3 -mx-4">
+                    <div class="bg-[#2b2d31] rounded-lg border border-gray-700/50 p-4">
+                      <div class="flex items-center space-x-3">
+                        <img :src="msg.avatar" class="w-8 h-8 rounded-full bg-gray-700 shrink-0" />
+                        <div class="flex-1 min-w-0">
+                          <div class="flex items-baseline space-x-2">
+                            <span class="font-semibold text-sm text-gray-100" x-text="msg.author"></span>
+                            <span class="text-[10px] text-gray-500" x-text="formatTime(msg.timestamp)"></span>
+                          </div>
+                          <div class="text-sm text-gray-200 mt-1">📎 <span class="font-semibold" x-text="msg.fileTransfer?.name || 'file'"></span>
+                            <span class="text-gray-400" x-text="' (' + (msg.fileTransfer?.size ? (msg.fileTransfer.size / 1024 / 1024).toFixed(1) + 'MB' : 'unknown') + ')'"></span>
+                          </div>
+                          <div class="mt-2 flex items-center space-x-2">
+                            <template x-if="!msg.fileProgress || msg.fileProgress === 0">
+                              <button @click="acceptFileTransfer(msg)" class="px-3 py-1 text-xs font-semibold rounded bg-app-accent hover:bg-app-accentHover text-white transition">Download</button>
+                            </template>
+                            <template x-if="msg.fileProgress > 0 && msg.fileProgress < 100">
+                              <div class="flex items-center space-x-2 text-xs text-gray-400">
+                                <div class="w-24 h-1.5 bg-[#1e1f22] rounded-full overflow-hidden">
+                                  <div class="h-full bg-app-accent rounded-full" :style="'width: ' + msg.fileProgress + '%'"></div>
+                                </div>
+                                <span x-text="msg.fileProgress + '%'"></span>
+                              </div>
+                            </template>
+                            <template x-if="msg.fileProgress === 100">
+                              <span class="text-xs text-app-green font-semibold">✅ Downloaded</span>
+                            </template>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </template>
+
                 <template x-if="msg.isPoll">
                   <div class="px-4 py-3 -mx-4">
                     <div class="bg-[#2b2d31] rounded-lg border border-gray-700/50 p-4 space-y-3">
@@ -587,10 +623,11 @@
             </template>
           </div>
 
-          <!-- Add Attachment / Link helper (also click to add image) -->
-          <button @click="promptMediaUrl()" class="text-gray-400 hover:text-white transition" title="Embed Media Link">
-            <i data-lucide="plus-circle" class="w-5 h-5"></i>
+          <!-- File transfer button (P2P over WebRTC data channel) -->
+          <button @click="pickFileToSend()" class="text-gray-400 hover:text-blue-400 transition" title="Send File (P2P)">
+            <i data-lucide="paperclip" class="w-5 h-5"></i>
           </button>
+          <input type="file" id="fileTransferInput" class="hidden" @change="onFilePicked($event)" />
 
           <!-- GIF search button -->
           <button @click="toggleGifPicker()" class="text-gray-400 hover:text-purple-400 transition" title="Search GIFs">
@@ -1148,6 +1185,9 @@
             credential: "guest"
           }
         ],
+
+        // File transfer state
+        _fileTransfers: {}, // transferId -> { chunks: [], received: 0, total: 0, info: {} }
 
         // Computed
         get connectedRelaysCount() {
@@ -2122,7 +2162,10 @@
               reactions: {},
               isAction: false,
               isPoll: payload.type === 'poll',
-              poll: payload.type === 'poll' ? payload.poll : null
+              poll: payload.type === 'poll' ? payload.poll : null,
+              isFileOffer: payload.type === 'file_offer',
+              fileTransfer: null,
+              fileProgress: 0
             };
             this.messages.push(msgObj);
             this.messages.sort((a, b) => a.timestamp - b.timestamp);
@@ -2506,7 +2549,10 @@
             reactions: {},
             isAction: isAction,
             isPoll: isPoll,
-            poll: isPoll ? payload.poll : null
+            poll: isPoll ? payload.poll : null,
+            isFileOffer: payload.type === 'file_offer',
+            fileTransfer: payload.type === 'file_offer' ? payload.file : null,
+            fileProgress: 0
           };
 
           // Check if this message mentions the current user (notification sound)
@@ -2557,6 +2603,13 @@
             if (cleanUrl.match(/\.(jpeg|jpg|gif|png|webp)(\?.*)?$/i)) {
               embeds.push({ type: 'image', url: cleanUrl });
               return `<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" class="text-app-accent hover:underline break-all">${cleanUrl}</a>`;
+            }
+
+            // File link (TempFile.org) — render with download styling
+            if (cleanUrl.match(/https?:\/\/tempfile\.org\/[a-zA-Z0-9]+/)) {
+              return `<a href="${cleanUrl}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center space-x-1 px-3 py-1.5 rounded bg-[#2b2d31] border border-gray-700/50 text-sm text-app-accent hover:bg-[#35373c] transition">
+                <span>📎</span><span>Download File</span>
+              </a>`;
             }
 
             // Video Match
@@ -2796,6 +2849,74 @@
             }
           }
           setTimeout(() => this.sendMessage(), 100);
+        },
+
+        pickFileToSend() {
+          document.getElementById('fileTransferInput').click();
+        },
+
+        async onFilePicked(event) {
+          const file = event.target.files?.[0];
+          if (!file) return;
+          event.target.value = '';
+          if (file.size > 100 * 1024 * 1024) {
+            this.showToast('File too large (max 100MB)');
+            return;
+          }
+
+          // Publish a file offer as a chat message
+          const fileData = {
+            type: 'file_offer',
+            text: '',
+            file: {
+              name: file.name,
+              size: file.size,
+              mimeType: file.type || 'application/octet-stream',
+              totalChunks: Math.ceil(file.size / 16384)
+            },
+            channel: this.activeChannel,
+            author: this.user.name,
+            replyTo: null
+          };
+
+          try {
+            const encrypted = await this.encryptPayload(fileData);
+            await this.publishNostrEvent(1, encrypted);
+          } catch (err) {
+            console.error('Failed to publish file offer:', err);
+            this.showToast('Failed to send file offer');
+            return;
+          }
+
+          // Store the file for later transfer when another user accepts
+          // We use the optimistic message ID as the transfer ID
+          const tempId = 'local_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
+          this._pendingFileTransfers = this._pendingFileTransfers || {};
+          this._pendingFileTransfers[tempId] = file;
+
+          // Optimistically add the file offer message
+          const msgObj = {
+            id: tempId,
+            pubkey: this.user.pk,
+            author: this.user.name,
+            avatar: this.getMyAvatar(),
+            content: '',
+            sanitizedHtml: '',
+            embeds: [],
+            channel: this.activeChannel,
+            timestamp: Date.now(),
+            replyTo: null,
+            reactions: {},
+            isAction: false,
+            isPoll: false,
+            poll: null,
+            isFileOffer: true,
+            fileTransfer: fileData.file,
+            fileProgress: 0
+          };
+          this.messages.push(msgObj);
+          this.messages.sort((a, b) => a.timestamp - b.timestamp);
+          // When real event arrives from relay, dedup will handle it
         },
 
         promptMediaUrl() {
@@ -3102,6 +3223,158 @@
               }
             }
           }
+        },
+
+        // === FILE TRANSFER (WebRTC data channel over TURN) ===
+
+        // Send a file to a specific peer
+        async sendFileToPeer(targetPubkey, msgId, file) {
+          // Generate transfer ID from message ID
+          const transferId = msgId;
+          const CHUNK_SIZE = 16384; // 16KB chunks
+          const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+
+          // Create or reuse WebRTC connection
+          let pc = this.voice.peerConnections[targetPubkey];
+          // If no existing voice connection, we need to initiate one for file transfer
+          if (!pc) {
+            // For now, use existing voice connection. In future, initiate dedicated file transfer PC.
+            this.showToast('Cannot send file: no active connection to peer');
+            return;
+          }
+
+          // Create a data channel for this file transfer
+          const dc = pc.createDataChannel('ft_' + transferId);
+          const fileReader = new FileReader();
+          let offset = 0;
+          let chunksSent = 0;
+
+          // Find the message and update its progress
+          const updateProgress = (pct) => {
+            const msg = this.messages.find(m => m.id === msgId) ||
+              Object.values(this.dmMessages).flat().find(m => m.id === msgId);
+            if (msg) msg.fileProgress = pct;
+          };
+
+          dc.onopen = () => {
+            // Send file header first
+            dc.send(JSON.stringify({
+              type: 'file_header',
+              transferId,
+              name: file.name,
+              size: file.size,
+              totalChunks,
+              mimeType: file.type
+            }));
+
+            // Read and send chunks
+            const readSlice = () => {
+              const slice = file.slice(offset, offset + CHUNK_SIZE);
+              fileReader.readAsArrayBuffer(slice);
+            };
+            fileReader.onload = () => {
+              dc.send(fileReader.result);
+              chunksSent++;
+              offset += CHUNK_SIZE;
+              updateProgress(Math.round((chunksSent / totalChunks) * 100));
+              if (offset < file.size) {
+                readSlice();
+              } else {
+                updateProgress(100);
+                this.showToast('File sent: ' + file.name);
+              }
+            };
+            readSlice();
+          };
+
+          dc.onerror = (e) => {
+            console.error('File transfer data channel error:', e);
+            this.showToast('File transfer failed');
+          };
+        },
+
+        // Accept a file transfer offer
+        async acceptFileTransfer(msg) {
+          if (!msg.fileTransfer) return;
+          const senderPubkey = msg.pubkey;
+          const transferId = msg.id;
+
+          // Initialize transfer state
+          if (!this._fileTransfers) this._fileTransfers = {};
+          this._fileTransfers[transferId] = {
+            chunks: [],
+            received: 0,
+            total: msg.fileTransfer.totalChunks || 0,
+            info: msg.fileTransfer
+          };
+
+          // Get or create WebRTC connection to sender
+          let pc = this.voice.peerConnections[senderPubkey];
+          if (!pc) {
+            this.showToast('No connection to sender');
+            return;
+          }
+
+          // Listen for the data channel
+          pc.ondatachannel = (e) => {
+            const dc = e.channel;
+            if (!dc.label.startsWith('ft_')) return;
+
+            let headerReceived = false;
+            const transfer = this._fileTransfers[transferId];
+
+            dc.onmessage = (ev) => {
+              if (!headerReceived) {
+                // First message is the header
+                try {
+                  const header = JSON.parse(ev.data);
+                  if (header.type === 'file_header') {
+                    headerReceived = true;
+                    transfer.total = header.totalChunks;
+                    transfer.info = header;
+                    msg.fileProgress = 0;
+                    return;
+                  }
+                } catch (e) {}
+              }
+
+              // File chunk data
+              transfer.chunks.push(ev.data);
+              transfer.received++;
+              const pct = Math.round((transfer.received / transfer.total) * 100);
+              msg.fileProgress = pct;
+
+              if (transfer.received >= transfer.total) {
+                // All chunks received — assemble and download
+                this._assembleFile(transferId, msg);
+              }
+            };
+          };
+
+          this.showToast('Waiting for file transfer...');
+        },
+
+        // Reassemble chunks and trigger download
+        _assembleFile(transferId, msg) {
+          const transfer = this._fileTransfers?.[transferId];
+          if (!transfer || !transfer.chunks.length) return;
+
+          try {
+            const blob = new Blob(transfer.chunks, { type: transfer.info.mimeType || 'application/octet-stream' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = transfer.info.name || 'download';
+            a.click();
+            URL.revokeObjectURL(url);
+            msg.fileProgress = 100;
+            this.showToast('Downloaded: ' + (transfer.info.name || 'file'));
+          } catch (e) {
+            console.error('File assembly failed:', e);
+            this.showToast('File download failed');
+          }
+
+          delete this._fileTransfers[transferId];
         },
 
         setupLocalAudioAnalyser(stream) {
