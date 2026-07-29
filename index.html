@@ -186,7 +186,7 @@
           </div>
           <template x-for="ch in textChannels" :key="ch.id">
             <div class="flex items-center w-full">
-              <button @click="activeChannel = ch.id; activeDM = null"
+              <button @click="switchChannel(ch.id)"
                       class="flex-1 flex items-center px-2 py-1.5 rounded text-sm font-medium transition-colors group min-w-0"
                       :class="activeChannel === ch.id && !activeDM ? 'bg-app-activeBg text-white' : 'text-gray-400 hover:bg-app-hoverBg hover:text-gray-200'">
                 <span class="text-gray-400 text-base mr-2 shrink-0">#</span>
@@ -356,7 +356,7 @@
             <span class="font-bold text-white text-base truncate" x-text="activeChannel"></span>
             <div class="h-4 w-[1px] bg-gray-700"></div>
             <span class="text-xs text-gray-400 truncate hidden sm:inline"
-                  x-text="room.topic ? '📌 ' + room.topic : (room.pass ? '🔒 AES-256 Encrypted' : '🌐 Public Channel')"></span>
+                  x-text="getChannelTopic() ? '📌 ' + getChannelTopic() : (room.pass ? '🔒 AES-256 Encrypted' : '🌐 Public Channel')"></span>
           </div>
         </template>
         <!-- DM header -->
@@ -803,9 +803,9 @@
           <p class="text-[10px] text-gray-500 mt-1">The slug is permanent and cannot be changed. Share the invite link for access.</p>
         </div>
 
-        <!-- Room Topic -->
+        <!-- Channel Topic (per channel) -->
         <div>
-          <label class="block text-xs font-bold uppercase text-gray-400 mb-1">Room Topic</label>
+          <label class="block text-xs font-bold uppercase text-gray-400 mb-1">Channel Topic (for #<span x-text="activeChannel"></span>)</label>
           <div class="flex items-center space-x-2">
             <input type="text" x-model="ui.roomSettingsTopic" placeholder="Set a channel topic..."
                    class="flex-1 bg-[#1e1f22] text-sm text-gray-100 p-2.5 rounded border border-gray-700 focus:outline-none focus:ring-1 focus:ring-app-accent" />
@@ -951,7 +951,7 @@
           slug: '',
           pass: '',
           key: null,
-          topic: '', // channel topic, set via /topic command
+          topic: '', // topic for the active channel, set via /topic command
           displayName: '', // human-readable room name (set by owner, separate from slug)
           ownerPubkey: null, // pubkey of the room owner (discovered or claimed)
           ownerDiscovered: false, // true once owner is resolved
@@ -1142,6 +1142,8 @@
           if (cachedConfig) {
             this.applyChannelConfig(cachedConfig);
           }
+          // Load topic for the default (first) channel
+          this.room.topic = this.loadChannelTopic(this.room.slug, this.activeChannel);
 
           // Reset grace period flag for this room (will start when first relay subscribes)
           this._gracePeriodStarted = false;
@@ -1273,8 +1275,8 @@
             this.room.ownerClaimTimer = null;
           }
 
-          // Load cached topic, display name, and channel config
-          this.room.topic = this.loadRoomTopic(newSlug);
+          // Load cached display name and channel config
+          this.room.topic = ''; // reset — topics are per-channel, loaded on channel switch
           this.room.displayName = this.loadRoomDisplayName(newSlug);
           const cachedConfig = this.loadRoomConfig(newSlug);
           if (cachedConfig) {
@@ -2097,12 +2099,13 @@
 
             case 'topic':
               if (!args.length) {
-                this.showToast('Current topic: ' + (this.room.topic || '(none)'));
+                const currentTopic = this.getChannelTopic();
+                this.showToast('Current topic: ' + (currentTopic || '(none)'));
                 return;
               }
               this.room.topic = args.join(' ');
-              this.saveRoomTopic(this.room.slug, this.room.topic);
-              this.showToast('Topic set');
+              this.saveChannelTopic(this.room.slug, this.activeChannel, this.room.topic);
+              this.showToast('Topic set for #' + this.activeChannel);
               break;
 
             case 'room':
@@ -2312,7 +2315,7 @@
         // Open room settings modal with current values pre-filled
         openRoomSettings() {
           this.ui.roomSettingsName = this.room.displayName || '';
-          this.ui.roomSettingsTopic = this.room.topic || '';
+          this.ui.roomSettingsTopic = this.getChannelTopic() || '';
           this.ui.roomSettingsPass = this.room.pass || '';
           this.ui.showRoomSettings = true;
         },
@@ -2324,10 +2327,10 @@
             this.room.displayName = this.ui.roomSettingsName.trim();
             this.saveRoomDisplayName(this.room.slug, this.room.displayName);
           }
-          // Save topic
+          // Save topic (per-channel)
           if (this.ui.roomSettingsTopic !== undefined) {
             this.room.topic = this.ui.roomSettingsTopic.trim();
-            this.saveRoomTopic(this.room.slug, this.room.topic);
+            this.saveChannelTopic(this.room.slug, this.activeChannel, this.room.topic);
           }
           // Save password
           const newPass = this.ui.roomSettingsPass.trim();
@@ -3037,26 +3040,43 @@
         },
 
         // ROOM TOPIC PERSISTENCE (per-room, localStorage with sessionStorage fallback)
-        loadRoomTopic(slug) {
+        // Switch to a different text channel and load its topic
+        switchChannel(channelId) {
+          this.activeChannel = channelId;
+          this.activeDM = null;
+          this.room.topic = this.loadChannelTopic(this.room.slug, channelId);
+        },
+
+        // Get the topic for the currently active channel
+        getChannelTopic() {
+          return this.room.topic;
+        },
+
+        // Load a specific channel'\''s topic for a room
+        loadChannelTopic(slug, channelId) {
           try {
-            const topics = JSON.parse(localStorage.getItem('chat_room_topics') || '{}');
-            if (topics[slug]) return topics[slug];
-            const sess = JSON.parse(sessionStorage.getItem('chat_room_topics') || '{}');
-            return sess[slug] || '';
+            const topics = JSON.parse(localStorage.getItem('chat_channel_topics') || '{}');
+            const roomTopics = topics[slug];
+            if (roomTopics && roomTopics[channelId]) return roomTopics[channelId];
+            const sess = JSON.parse(sessionStorage.getItem('chat_channel_topics') || '{}');
+            const sRoom = sess[slug];
+            return (sRoom && sRoom[channelId]) || '';
           } catch (e) { return ''; }
         },
 
-        saveRoomTopic(slug, topic) {
+        saveChannelTopic(slug, channelId, topic) {
+          if (!slug || !channelId) return;
           try {
-            const topics = JSON.parse(localStorage.getItem('chat_room_topics') || '{}');
-            topics[slug] = topic;
-            localStorage.setItem('chat_room_topics', JSON.stringify(topics));
+            const topics = JSON.parse(localStorage.getItem('chat_channel_topics') || '{}');
+            if (!topics[slug]) topics[slug] = {};
+            topics[slug][channelId] = topic;
+            localStorage.setItem('chat_channel_topics', JSON.stringify(topics));
           } catch (e) {
-            // localStorage full — fall back to sessionStorage
             try {
-              const topics = JSON.parse(sessionStorage.getItem('chat_room_topics') || '{}');
-              topics[slug] = topic;
-              sessionStorage.setItem('chat_room_topics', JSON.stringify(topics));
+              const topics = JSON.parse(sessionStorage.getItem('chat_channel_topics') || '{}');
+              if (!topics[slug]) topics[slug] = {};
+              topics[slug][channelId] = topic;
+              sessionStorage.setItem('chat_channel_topics', JSON.stringify(topics));
             } catch (e2) {}
           }
         },
