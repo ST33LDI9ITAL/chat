@@ -1007,6 +1007,7 @@
         // Tracks the source of the current channel config (for debugging/fallback)
         channelConfigSource: 'default', // 'relay' | 'localStorage' | 'default'
         _pendingConfig: null, // pending channel config from unknown owner (race mitigation)
+        _gracePeriodStarted: false, // prevents starting the grace period multiple times per room
         _ownerClaims: null, // temporary: map of pubkey -> {timestamp, ev} for collecting claims during grace period
         _ownerResolveTimer: null, // setTimeout handle for the grace period resolution
         recentRooms: [], // [{slug, pass, displayName, lastSeen}] — rooms joined via switchRoom
@@ -1128,15 +1129,14 @@
           this.loadRecentRooms();
           this.addRecentRoom(this.room.slug, this.room.pass);
           this.room.displayName = this.loadRoomDisplayName(this.room.slug);
-
-          // Start ownership grace period (collects claims for 8s, then resolves)
-          this._startOwnerGracePeriod();
           // Load cached channel config
           const cachedConfig = this.loadRoomConfig(this.room.slug);
           if (cachedConfig) {
             this.applyChannelConfig(cachedConfig);
           }
 
+          // Reset grace period flag for this room (will start when first relay subscribes)
+          this._gracePeriodStarted = false;
           console.log('initApp: starting relay connections');
           this.connectRelays();
           console.log('initApp: relay connections initiated');
@@ -1295,8 +1295,8 @@
           this.resubscribeAll();
           this.broadcastPresence();
 
-          // Start the grace period for collecting owner claims
-          this._startOwnerGracePeriod();
+          // Reset the grace period flag so it restarts on the new relay subscription
+          this._gracePeriodStarted = false;
 
           // Load config from relay: if no kind:30001 arrives within 5s, cached/default sticks
           setTimeout(() => {
@@ -1545,8 +1545,11 @@
           this.claimRoomOwnership();
         },
 
-        // Start the grace period for collecting owner claims
+        // Start the grace period for collecting owner claims from relays
+        // Called when the first relay connects (subscription is active)
         _startOwnerGracePeriod() {
+          // Mark as started so subscribeRelay doesn't trigger it again
+          this._gracePeriodStarted = true;
           // Initialize or reset the claims map
           this._ownerClaims = {};
           this._ownerResolvedAt = 0;
@@ -1564,7 +1567,7 @@
           }
 
           // Start 8-second grace period to collect existing owner claims from relays
-          this._ownerResolveTimer = setTimeout(() => this._resolveOwnership(), 8000);
+          this._ownerResolveTimer = setTimeout(() => this._resolveOwnership(), 4000);
         },
 
         // Claim ownership of the current room (publish kind:30000)
@@ -1818,6 +1821,11 @@
 
         subscribeRelay(relay) {
           if (!relay.ws || relay.ws.readyState !== WebSocket.OPEN) return;
+          // Start the ownership grace period on the first relay subscription (after connecting)
+          if (!this._gracePeriodStarted) {
+            this._gracePeriodStarted = true;
+            this._startOwnerGracePeriod();
+          }
           const subId = 'sub_' + relay.url.replace(/[^a-zA-Z0-9]/g, '_') + '_' + this.room.slug;
           const filter = {
             kinds: [1, 20000, 25000, 30000, 30001],
