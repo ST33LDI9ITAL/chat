@@ -2221,6 +2221,7 @@
               .sort((a, b) => b.score - a.score);
             if (best.length > 0) {
               cmd = best[0].cmd;
+              this.showToast('➡️ /' + cmd);
             }
           }
 
