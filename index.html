@@ -1611,37 +1611,24 @@
         _startOwnerGracePeriod() {
           // Mark as started so subscribeRelay doesn't trigger it again
           this._gracePeriodStarted = true;
-          // Initialize or reset the claims map (BEFORE query so results are collected)
-          this._ownerClaims = {};
-          this._ownerResolvedAt = 0;
-          this.room.ownerDiscovered = false;
-          this.room.ownerPubkey = null;
-
-          // Check cache FIRST — if we already know the owner, skip claiming
+          // Check cache FIRST — if we already know the owner, use it
           const cachedOwner = this.loadRoomOwner(this.room.slug);
           if (cachedOwner) {
             this.room.ownerPubkey = cachedOwner;
             this.room.ownerDiscovered = true;
-            console.log('Owner loaded from cache (grace period):', cachedOwner.substring(0, 8));
+            console.log('Owner loaded from cache:', cachedOwner.substring(0, 8));
             return;
           }
 
-          // Publish our own claim immediately so other peers can discover us
+          // Publish our claim and become owner immediately
+          // If another peer already claimed, their event will arrive via subscription
+          // and the post-resolution handler in onIncomingRoomOwnerEvent will switch
           this.claimRoomOwnership();
-
-          // Clear any existing timer
-          if (this._ownerResolveTimer) {
-            clearTimeout(this._ownerResolveTimer);
-            this._ownerResolveTimer = null;
-          }
-          if (this.room.ownerClaimTimer) {
-            clearTimeout(this.room.ownerClaimTimer);
-            this.room.ownerClaimTimer = null;
-          }
-
-          // Start grace period to collect existing owner claims from relays
-          this._ownerResolveTimer = setTimeout(() => this._resolveOwnership(), 8000);
-          // Start polling for new events (relays may not push via subscription)
+          this.room.ownerPubkey = this.user.pk;
+          this.room.ownerDiscovered = true;
+          this._ownerResolvedAt = Math.floor(Date.now() / 1000);
+          this.saveRoomOwner(this.room.slug, this.user.pk);
+          this.publishChannelConfig();
         },
 
         // Claim ownership of the current room (publish kind:30000)
@@ -1658,30 +1645,23 @@
             type: 'ownership',
             owner: this.user.pk
           };
-          const encryptedContent = await this.encryptPayload(ownershipData);
-          const eventTemplate = {
-            kind: 1,
-            created_at: now,
-            tags: [
-              ['t', this.room.slug]
-            ],
-            content: encryptedContent
-          };
-
-          if (!window.NostrTools || !window.NostrTools.finalizeEvent) return;
-          const signedEvent = window.NostrTools.finalizeEvent(eventTemplate, this.hexToBytes(this.user.sk));
-          const msgFrame = JSON.stringify(['EVENT', signedEvent]);
-
-          this.relays.forEach(r => {
-            if (r.ws && r.ws.readyState === WebSocket.OPEN) r.ws.send(msgFrame);
-          });
-
-          // Our claim is added to the collected set (will be resolved after grace period)
-          if (!this._ownerClaims) this._ownerClaims = {};
-          this._ownerClaims[this.user.pk] = now;
-
-          console.log('Claimed room ownership for', this.room.slug, 'at', now, 'pubkey:', this.user.pk.substring(0,12));
-          // Channel config is published when ownership is resolved
+          try {
+            const encryptedContent = await this.encryptPayload(ownershipData);
+            const eventTemplate = {
+              kind: 1, created_at: now,
+              tags: [['t', this.room.slug]],
+              content: encryptedContent
+            };
+            if (!window.NostrTools || !window.NostrTools.finalizeEvent) return;
+            const signedEvent = window.NostrTools.finalizeEvent(eventTemplate, this.hexToBytes(this.user.sk));
+            const msgFrame = JSON.stringify(['EVENT', signedEvent]);
+            this.relays.forEach(r => {
+              if (r.ws && r.ws.readyState === WebSocket.OPEN) r.ws.send(msgFrame);
+            });
+            console.log('Claimed room ownership for', this.room.slug, 'at', now);
+          } catch (e) {
+            console.error('claimRoomOwnership failed:', e);
+          }
         },
 
         // Handle incoming channel config event (kind:30001)
