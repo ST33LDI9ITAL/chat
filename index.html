@@ -1007,7 +1007,8 @@
         // Tracks the source of the current channel config (for debugging/fallback)
         channelConfigSource: 'default', // 'relay' | 'localStorage' | 'default'
         _pendingConfig: null, // pending channel config from unknown owner (race mitigation)
-        _ownerClaimedAt: 0, // timestamp of the owner event we accepted (for race resolution)
+        _ownerClaims: null, // temporary: map of pubkey -> {timestamp, ev} for collecting claims during grace period
+        _ownerResolveTimer: null, // setTimeout handle for the grace period resolution
         recentRooms: [], // [{slug, pass, displayName, lastSeen}] — rooms joined via switchRoom
 
         // UI Controls
@@ -1128,16 +1129,8 @@
           this.addRecentRoom(this.room.slug, this.room.pass);
           this.room.displayName = this.loadRoomDisplayName(this.room.slug);
 
-          // Initialize room ownership for the initial room
-          this.room.ownerPubkey = this.loadRoomOwner(this.room.slug);
-          this.room.ownerDiscovered = !!this.room.ownerPubkey;
-          if (!this.room.ownerDiscovered) {
-            // Start claim timer: after 3s with no owner event, claim ownership
-            this.room.ownerClaimTimer = setTimeout(() => {
-              this.room.ownerClaimTimer = null;
-              this.claimRoomOwnership();
-            }, 3000);
-          }
+          // Start ownership grace period (collects claims for 8s, then resolves)
+          this._startOwnerGracePeriod();
           // Load cached channel config
           const cachedConfig = this.loadRoomConfig(this.room.slug);
           if (cachedConfig) {
@@ -1302,13 +1295,8 @@
           this.resubscribeAll();
           this.broadcastPresence();
 
-          // If no owner discovered from cache, start claim timer
-          if (!this.room.ownerDiscovered) {
-            this.room.ownerClaimTimer = setTimeout(() => {
-              this.room.ownerClaimTimer = null;
-              this.claimRoomOwnership();
-            }, 3000);
-          }
+          // Start the grace period for collecting owner claims
+          this._startOwnerGracePeriod();
 
           // Load config from relay: if no kind:30001 arrives within 5s, cached/default sticks
           setTimeout(() => {
@@ -1497,50 +1485,86 @@
         // === ROOM OWNERSHIP & CHANNEL CONFIG (kind:30000 / kind:30001) ===
 
         // Handle incoming room owner declaration event (kind:30000)
+        // Collect owner claims during grace period, then resolve via earliest timestamp + pubkey tiebreaker
         onIncomingRoomOwnerEvent(ev) {
-          // Accept any owner declaration (our own echo or another user)
-          // Use timestamp comparison: the earliest claim wins
-          const incomingTs = ev.created_at;
+          const pubkey = ev.pubkey;
+          const ts = ev.created_at;
 
-          // If we already have an owner, only accept if incoming has earlier timestamp
+          // If we already have a resolved owner, still check if this incoming claim is strictly better
           if (this.room.ownerDiscovered && this.room.ownerPubkey) {
-            if (incomingTs < this._ownerClaimedAt) {
-              // Incoming event is older than our claim — they were first
-              this.room.ownerPubkey = ev.pubkey;
-              this.room.ownerDiscovered = true;
-              this.saveRoomOwner(this.room.slug, ev.pubkey);
-              console.log('Room owner updated to earlier claim:', ev.pubkey.substring(0, 8));
+            // Compare: earlier timestamp wins, same timestamp = lower pubkey wins
+            const currentBetter = this._isClaimBetter(this.room.ownerPubkey, this._ownerResolvedAt, pubkey, ts);
+            if (!currentBetter) {
+              // Incoming claim is better — switch to it
+              this.room.ownerPubkey = pubkey;
+              this._ownerResolvedAt = ts;
+              this.saveRoomOwner(this.room.slug, pubkey);
+              console.log('Owner updated to better claim:', pubkey.substring(0, 8), 'at', ts);
             }
             return;
           }
 
-          // No owner yet — accept this one
-          this.room.ownerPubkey = ev.pubkey;
-          this.room.ownerDiscovered = true;
-          this._ownerClaimedAt = incomingTs;
+          // During grace period, collect all claims
+          if (!this._ownerClaims) this._ownerClaims = {};
+          // Keep the earliest timestamp per pubkey (first time they claimed)
+          if (!this._ownerClaims[pubkey] || ts < this._ownerClaims[pubkey]) {
+            this._ownerClaims[pubkey] = ts;
+          }
+          console.log('Collected owner claim:', pubkey.substring(0, 8), 'at', ts);
+        },
 
-          // Cache owner in localStorage
-          this.saveRoomOwner(this.room.slug, ev.pubkey);
+        // Compare two claims: true if claimA is better (earlier timestamp, or same ts & lower pubkey)
+        _isClaimBetter(pubkeyA, tsA, pubkeyB, tsB) {
+          if (tsA !== tsB) return tsA < tsB;
+          return pubkeyA < pubkeyB; // lexicographic pubkey comparison as tiebreaker
+        },
 
-          // Cancel any pending claim timer
+        // Resolve ownership after grace period: pick best claim or claim ourselves
+        _resolveOwnership() {
+          this._ownerResolveTimer = null;
+
+          if (this._ownerClaims && Object.keys(this._ownerClaims).length > 0) {
+            // Pick the best claim: earliest timestamp, tiebreak by lowest pubkey
+            let bestPubkey = null;
+            let bestTs = Infinity;
+            for (const [pk, ts] of Object.entries(this._ownerClaims)) {
+              if (bestPubkey === null || this._isClaimBetter(pk, ts, bestPubkey, bestTs)) {
+                bestPubkey = pk;
+                bestTs = ts;
+              }
+            }
+            this.room.ownerPubkey = bestPubkey;
+            this.room.ownerDiscovered = true;
+            this._ownerResolvedAt = bestTs;
+            this.saveRoomOwner(this.room.slug, bestPubkey);
+            console.log('Owner resolved (from collected claims):', bestPubkey.substring(0, 8));
+            return;
+          }
+
+          // No claims collected — claim ourselves
+          this.claimRoomOwnership();
+        },
+
+        // Start the grace period for collecting owner claims
+        _startOwnerGracePeriod() {
+          // Initialize or reset the claims map
+          this._ownerClaims = {};
+          this._ownerResolvedAt = 0;
+          this.room.ownerDiscovered = false;
+          this.room.ownerPubkey = null;
+
+          // Clear any existing timer
+          if (this._ownerResolveTimer) {
+            clearTimeout(this._ownerResolveTimer);
+            this._ownerResolveTimer = null;
+          }
           if (this.room.ownerClaimTimer) {
             clearTimeout(this.room.ownerClaimTimer);
             this.room.ownerClaimTimer = null;
           }
 
-          // Apply any pending config that arrived before the owner declaration
-          if (this._pendingConfig && this._pendingConfig.pubkey === ev.pubkey) {
-            try {
-              const config = JSON.parse(this._pendingConfig.content);
-              if (config && config.version && Array.isArray(config.textChannels)) {
-                this.applyChannelConfig(config);
-                this.channelConfigSource = 'relay';
-              }
-            } catch (e) {}
-            this._pendingConfig = null;
-          }
-
-          console.log('Room owner discovered/set:', ev.pubkey.substring(0, 8), 'timestamp:', incomingTs);
+          // Start 8-second grace period to collect existing owner claims from relays
+          this._ownerResolveTimer = setTimeout(() => this._resolveOwnership(), 8000);
         },
 
         // Claim ownership of the current room (publish kind:30000)
@@ -1548,8 +1572,6 @@
           if (this.room.ownerDiscovered || !this.user.pk) return;
 
           const now = Math.floor(Date.now() / 1000);
-          // Record our claim timestamp for race resolution
-          this._ownerClaimedAt = now;
 
           const eventTemplate = {
             kind: 30000,
@@ -1570,8 +1592,11 @@
             if (r.ws && r.ws.readyState === WebSocket.OPEN) r.ws.send(msgFrame);
           });
 
-          console.log('Claimed room ownership at', this._ownerClaimedAt);
-          // Publish initial channel config (ownership is tentative until relay confirms)
+          // Our claim is added to the collected set (will be resolved after grace period)
+          if (!this._ownerClaims) this._ownerClaims = {};
+          this._ownerClaims[this.user.pk] = now;
+
+          console.log('Claimed room ownership at', now);
           await this.publishChannelConfig();
         },
 
