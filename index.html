@@ -1251,8 +1251,6 @@
           this.addRecentRoom(this.room.slug, this.room.pass);
           this.room.displayName = this.loadRoomDisplayName(this.room.slug);
           this.room.moderators = this.loadRoomModerators(this.room.slug);
-          this.room.uniqueVisitors = this.loadRoomUniqueVisitors(this.room.slug);
-          this.room._seenVisitors = new Set();
           // Load cached channel config
           const cachedConfig = this.loadRoomConfig(this.room.slug);
           if (cachedConfig) {
@@ -1393,8 +1391,6 @@
           this.room.topic = ''; // reset — topics are per-channel, loaded on channel switch
           this.room.motd = '';
           this.room.moderators = this.loadRoomModerators(newSlug);
-          this.room.uniqueVisitors = this.loadRoomUniqueVisitors(newSlug);
-          this.room._seenVisitors = new Set();
           this.room.displayName = this.loadRoomDisplayName(newSlug);
           const cachedConfig = this.loadRoomConfig(newSlug);
           if (cachedConfig) {
@@ -1720,8 +1716,6 @@
         _startOwnerGracePeriod() {
           // Mark as started so subscribeRelay doesn'\''t trigger it again
           this._gracePeriodStarted = true;
-          // Count ourselves as a unique visitor
-          this._countVisitor(this.user.pk);
           // Check cache FIRST — if we already know the owner, use it
           const cachedOwner = this.loadRoomOwner(this.room.slug);
           if (cachedOwner) {
@@ -4009,40 +4003,6 @@
             } catch (e2) {}
           }
         },
-
-        // Count a unique visitor for this room (dedup'd by pubkey)
-        _countVisitor(pubkey) {
-          if (!this.room._seenVisitors) this.room._seenVisitors = new Set();
-          if (!this.room._seenVisitors.has(pubkey)) {
-            this.room._seenVisitors.add(pubkey);
-            this.room.uniqueVisitors++;
-            this.saveRoomUniqueVisitors(this.room.slug, this.room.uniqueVisitors);
-          }
-        },
-
-        loadRoomUniqueVisitors(slug) {
-          try {
-            const data = JSON.parse(localStorage.getItem('chat_room_visitors') || '{}');
-            if (data[slug] !== undefined) return data[slug];
-            const sess = JSON.parse(sessionStorage.getItem('chat_room_visitors') || '{}');
-            return sess[slug] || 1; // at least 1 (the room creator)
-          } catch (e) { return 1; }
-        },
-
-        saveRoomUniqueVisitors(slug, count) {
-          try {
-            const data = JSON.parse(localStorage.getItem('chat_room_visitors') || '{}');
-            data[slug] = count;
-            localStorage.setItem('chat_room_visitors', JSON.stringify(data));
-          } catch (e) {
-            try {
-              const data = JSON.parse(sessionStorage.getItem('chat_room_visitors') || '{}');
-              data[slug] = count;
-              sessionStorage.setItem('chat_room_visitors', JSON.stringify(data));
-            } catch (e2) {}
-          }
-        },
-
         // Moderators persistence
         loadRoomModerators(slug) {
           try {
