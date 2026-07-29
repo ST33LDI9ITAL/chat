@@ -107,7 +107,7 @@
       <!-- Joined / Recent Rooms (scrollable) -->
       <div class="flex-1 overflow-y-auto overflow-x-hidden space-y-2 px-1">
         <!-- Skip the personal room (it has its own dedicated icon above) -->
-        <template x-for="r in recentRooms.filter(r => r.slug !== personalRoomSlug)" :key="r.slug">
+        <template x-for="r in subscribedRooms.filter(r => r.slug !== personalRoomSlug)" :key="r.slug">
           <div class="relative group">
             <button @click="switchRoom(r.slug, r.pass || '')" 
                     class="w-12 h-12 rounded-2xl transition-all duration-200 flex items-center justify-center font-bold text-sm"
@@ -118,7 +118,7 @@
               <span x-text="r.displayName || '#' + r.slug"></span>
             </span>
             <!-- Remove room button on hover -->
-            <button @click.stop="removeRecentRoom(r.slug)" 
+            <button @click.stop="removeSubscribedRoom(r.slug)" 
                     class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-app-red text-white text-[10px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                     title="Remove from sidebar">✕</button>
           </div>
@@ -1120,7 +1120,7 @@
         _gracePeriodStarted: false, // prevents starting the grace period multiple times per room
         _ownerClaims: null, // temporary: map of pubkey -> {timestamp, ev} for collecting claims during grace period
         _ownerResolveTimer: null, // setTimeout handle for the grace period resolution
-        recentRooms: [], // [{slug, pass, displayName, lastSeen}] — rooms joined via switchRoom
+        subscribedRooms: [], // [{slug, pass, displayName}] — rooms explicitly joined
 
         // UI Controls
         ui: {
@@ -1247,8 +1247,7 @@
           // Apply avatar after room key is ready (applyAvatarSource broadcasts presence)
           this.applyAvatarSource();
           this.loadDMState();
-          this.loadRecentRooms();
-          this.addRecentRoom(this.room.slug, this.room.pass);
+          this.loadSubscribedRooms();
           this.room.displayName = this.loadRoomDisplayName(this.room.slug);
           this.room.moderators = this.loadRoomModerators(this.room.slug);
           // Load cached channel config
@@ -1376,9 +1375,6 @@
           this.room.slug = newSlug;
           this.room.pass = newPass;
 
-          // Track this room in recent rooms
-          this.addRecentRoom(newSlug, newPass);
-
           // Reset room ownership state for the new room
           const cachedOwnerEntry = this.loadRoomOwner(newSlug);
           if (typeof cachedOwnerEntry === 'string') {
@@ -1459,6 +1455,7 @@
             slug = result;
           }
           this.switchRoom(slug, this.ui.newRoomPass.trim());
+          this.subscribeRoom(slug, this.ui.newRoomPass.trim());
           // If a room display name was provided, set it
           if (this.ui.newRoomName.trim()) {
             this.room.displayName = this.ui.newRoomName.trim();
@@ -2286,6 +2283,7 @@
               if (!args.length) { this.showToast('Usage: /join <slug> [pass]'); return; }
               this.activeDM = null;
               this.switchRoom(args[0], args[1] || '');
+              this.subscribeRoom(args[0], args[1] || '');
               break;
 
             case 'relay':
@@ -2780,39 +2778,35 @@
         },
 
         // Remove a room from the recent rooms sidebar
-        removeRecentRoom(slug) {
-          this.recentRooms = this.recentRooms.filter(r => r.slug !== slug);
-          this.saveRecentRooms();
+        removeSubscribedRoom(slug) {
+          this.subscribedRooms = this.subscribedRooms.filter(r => r.slug !== slug);
+          this.saveSubscribedRooms();
         },
 
-        // Add a room to the recent rooms list (or update existing)
-        addRecentRoom(slug, pass) {
-          // Remove existing entry for this slug so we can move it to the top
-          this.recentRooms = this.recentRooms.filter(r => r.slug !== slug);
-          // Add to the front
-          this.recentRooms.unshift({
+        subscribeRoom(slug, pass) {
+          this.subscribedRooms = this.subscribedRooms.filter(r => r.slug !== slug);
+          this.subscribedRooms.unshift({
             slug: slug,
             pass: pass || '',
             displayName: this.room.displayName || ''
           });
-          // Limit to 10 recent rooms
-          if (this.recentRooms.length > 10) this.recentRooms = this.recentRooms.slice(0, 10);
-          this.saveRecentRooms();
+          if (this.subscribedRooms.length > 20) this.subscribedRooms = this.subscribedRooms.slice(0, 20);
+          this.saveSubscribedRooms();
         },
 
-        // Persist recent rooms to localStorage
-        saveRecentRooms() {
+        // Persist subscribed rooms to localStorage
+        saveSubscribedRooms() {
           try {
-            const data = this.recentRooms.map(r => ({ slug: r.slug, pass: r.pass || '', displayName: r.displayName || '' }));
-            localStorage.setItem('chat_recent_rooms', JSON.stringify(data));
+            const data = this.subscribedRooms.map(r => ({ slug: r.slug, pass: r.pass || '', displayName: r.displayName || '' }));
+            localStorage.setItem('chat_subscribed_rooms', JSON.stringify(data));
           } catch (e) {}
         },
 
-        loadRecentRooms() {
+        loadSubscribedRooms() {
           try {
-            const data = JSON.parse(localStorage.getItem('chat_recent_rooms') || '[]');
-            this.recentRooms = data;
-          } catch (e) { this.recentRooms = []; }
+            const data = JSON.parse(localStorage.getItem('chat_subscribed_rooms') || '[]');
+            this.subscribedRooms = data;
+          } catch (e) { this.subscribedRooms = []; }
         },
 
         // Convert a pasted/dropped file to a data URI and insert into message
