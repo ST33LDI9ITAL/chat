@@ -2103,8 +2103,20 @@
         dispatchCommand(input) {
           // Parse command and arguments (handle quoted strings)
           const parts = input.slice(1).match(/(?:[^\s"]+|"[^"]*")+/g) || [];
-          const cmd = (parts[0] || '').toLowerCase();
+          let cmd = (parts[0] || '').toLowerCase();
           const args = parts.slice(1).map(s => s.replace(/^"(.*)"$/, '$1'));
+
+          // Fuzzy match commands: find the closest matching command
+          const commands = ['help', 'me', 'w', 'whisper', 'nick', 'clear', 'join', 'relay', 'dm', 'topic', 'room', 'motd', 'clearmotd', 'poll'];
+          if (!commands.includes(cmd)) {
+            const best = commands
+              .map(c => ({ cmd: c, score: this._fuzzyScore(cmd, c) }))
+              .filter(c => c.score > 0.5)
+              .sort((a, b) => b.score - a.score);
+            if (best.length > 0) {
+              cmd = best[0].cmd;
+            }
+          }
 
           switch (cmd) {
             case 'help':
@@ -2954,6 +2966,24 @@
 
         // === @MENTION AUTOCOMPLETE ===
 
+        // Simple fuzzy match score: returns 0-1 where 1 is exact match
+        _fuzzyScore(query, target) {
+          const q = query.toLowerCase();
+          const t = target.toLowerCase();
+          // Exact substring match gets highest score
+          if (t === q) return 1;
+          if (t.startsWith(q)) return 0.9;
+          if (t.includes(q)) return 0.8;
+          // Character-by-character fuzzy: count how many chars match in sequence
+          let qi = 0;
+          for (let ti = 0; ti < t.length && qi < q.length; ti++) {
+            if (q[qi] === t[ti]) qi++;
+          }
+          // If all query chars found in order, score by how compact the match is
+          if (qi === q.length) return 0.5 + (q.length / t.length) * 0.3;
+          return 0;
+        },
+
         onMentionInput(event) {
           const pos = event.target.selectionStart;
           const text = this.newMessageText.substring(0, pos);
@@ -2962,20 +2992,40 @@
           // Show dropdown if we found @word, but not for @@ (double at)
           if (atMatch && atMatch.index !== undefined && (atMatch.index === 0 || text[atMatch.index - 1] !== '@')) {
             const query = atMatch[1].toLowerCase();
-            const matches = Object.values(this.peers)
-              .filter(p =>
-                p.name.toLowerCase().includes(query) ||
-                p.pubkey.toLowerCase().includes(query)
-              )
-              .slice(0, 10);
+            if (!query) {
+              // Empty query — show all online peers
+              const allPeers = Object.values(this.peers).slice(0, 10);
+              if (allPeers.length > 0) {
+                this.mentionState.show = true;
+                this.mentionState.query = '';
+                this.mentionState.cursorPos = pos;
+                this.mentionState.selectedIndex = 0;
+                this.mentionCandidates = allPeers;
+                return;
+              }
+            } else {
+              // Score all peers by fuzzy match, sort by score descending
+              const scored = Object.values(this.peers)
+                .map(p => ({
+                  peer: p,
+                  score: Math.max(
+                    this._fuzzyScore(query, p.name),
+                    this._fuzzyScore(query, p.pubkey.substring(0, 8))
+                  )
+                }))
+                .filter(p => p.score > 0)
+                .sort((a, b) => b.score - a.score)
+                .slice(0, 10)
+                .map(p => p.peer);
 
-            if (matches.length > 0) {
-              this.mentionState.show = true;
-              this.mentionState.query = query;
-              this.mentionState.cursorPos = pos;
-              this.mentionState.selectedIndex = 0;
-              this.mentionCandidates = matches;
-              return;
+              if (scored.length > 0) {
+                this.mentionState.show = true;
+                this.mentionState.query = query;
+                this.mentionState.cursorPos = pos;
+                this.mentionState.selectedIndex = 0;
+                this.mentionCandidates = scored;
+                return;
+              }
             }
           }
           this.mentionState.show = false;
