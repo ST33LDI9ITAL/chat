@@ -642,19 +642,27 @@
 
           <!-- Input Textarea (supports paste for images) -->
           <div class="relative flex-1">
-            <!-- Corrected command hint -->
-            <div x-show="ui.correctedCommand" x-transition
-                 class="absolute bottom-full left-0 mb-1 text-[10px] text-purple-400 font-semibold bg-[#1e1f22] px-2 py-0.5 rounded border border-purple-500/30 whitespace-nowrap">
-              ➡️ /<span x-text="ui.correctedCommand"></span>
-            </div>
             <input type="text" x-model="newMessageText"
                    @keydown.enter.prevent="sendMessage()"
-                 @input="onMentionInput($event)"
-                 @keydown="onMentionKeydown($event)"
+                 @input="onMentionInput($event); onCommandInput($event)"
+                 @keydown="onMentionKeydown($event); onCommandKeydown($event)"
                  @blur="onMentionBlur()"
                  @paste="onPaste($event)"
                  :placeholder="activeDM ? 'Message ' + getDMChannelName(activeDM) + '...' : 'Message #' + activeChannel + '...'"
                  class="w-full bg-transparent text-sm text-gray-100 placeholder-gray-500 focus:outline-none" />
+
+          <!-- Command Autocomplete Dropdown -->
+          <div x-show="ui.showCommandPicker"
+               class="absolute bottom-full left-0 mb-1 w-56 max-h-48 overflow-y-auto bg-[#2b2d31] border border-gray-700 rounded-lg shadow-xl z-50">
+            <template x-for="(cmd, idx) in ui.commandSuggestions" :key="cmd">
+              <div class="px-3 py-2 text-xs cursor-pointer flex items-center justify-between"
+                   :class="idx === ui.commandSelectedIndex ? 'bg-app-accent/30 text-white' : 'text-gray-300 hover:bg-app-hoverBg hover:text-white'"
+                   @click="selectCommand(cmd)" @mouseenter="ui.commandSelectedIndex = idx">
+                <span class="font-semibold">/<span x-text="cmd"></span></span>
+                <span class="text-[10px] text-gray-500" x-text="commandDescriptions[cmd] || ''"></span>
+              </div>
+            </template>
+          </div>
           </div>
 
           <!-- Hidden file input for drag-and-drop images -->
@@ -1140,8 +1148,10 @@
           showRoomModal: false,
           showProfileModal: false,
           showEmojiPicker: false,
-          correctedCommand: '',
           showGifPicker: false,
+          showCommandPicker: false,
+          commandSuggestions: [],
+          commandSelectedIndex: -1,
           gifQuery: '',
           gifResults: [],
           gifLoading: false,
@@ -2161,6 +2171,7 @@
 
         // 4. CHAT MESSAGING ENGINE & RICH EMBEDS
         async sendMessage() {
+          this.ui.showCommandPicker = false;
           if (!this.newMessageText.trim()) return;
 
           const text = this.newMessageText.trim();
@@ -2270,9 +2281,6 @@
               .sort((a, b) => b.score - a.score);
             if (best.length > 0) {
               cmd = best[0].cmd;
-              // Set corrected command hint briefly
-              this.ui.correctedCommand = cmd;
-              setTimeout(() => { this.ui.correctedCommand = ''; }, 1500);
             }
           }
 
@@ -3626,6 +3634,74 @@
             };
             check();
           } catch (e) {}
+        },
+
+        // === COMMAND AUTOCOMPLETE ===
+
+        commandDescriptions: {
+          help: 'Show available commands',
+          me: 'Send action text (*italic*)',
+          w: 'Whisper to a user',
+          whisper: 'Whisper to a user',
+          nick: 'Change your display name',
+          clear: 'Clear chat messages',
+          join: 'Join or create a room',
+          relay: 'Show relay connection status',
+          dm: 'Open DM with a user',
+          topic: 'Set channel topic',
+          room: 'Set room display name',
+          motd: 'Set message of the day',
+          clearmotd: 'Clear message of the day',
+          poll: 'Create a poll',
+          mod: 'Manage moderators'
+        },
+
+        onCommandInput(event) {
+          const text = this.newMessageText;
+          if (!text.startsWith('/')) {
+            this.ui.showCommandPicker = false;
+            return;
+          }
+          const partial = text.slice(1).toLowerCase();
+          const all = ['help', 'me', 'w', 'whisper', 'nick', 'clear', 'join', 'relay', 'dm', 'topic', 'room', 'motd', 'clearmotd', 'poll', 'mod'];
+          if (!partial) {
+            this.ui.commandSuggestions = all;
+            this.ui.showCommandPicker = true;
+            this.ui.commandSelectedIndex = 0;
+            return;
+          }
+          const filtered = all.filter(c => c.startsWith(partial) || this._fuzzyScore(partial, c) > 0.5);
+          this.ui.commandSuggestions = filtered;
+          this.ui.showCommandPicker = filtered.length > 0;
+          this.ui.commandSelectedIndex = filtered.length > 0 ? 0 : -1;
+        },
+
+        onCommandKeydown(event) {
+          if (!this.ui.showCommandPicker) return;
+          if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            this.ui.commandSelectedIndex = Math.min(this.ui.commandSelectedIndex + 1, this.ui.commandSuggestions.length - 1);
+          } else if (event.key === 'ArrowUp') {
+            event.preventDefault();
+            this.ui.commandSelectedIndex = Math.max(this.ui.commandSelectedIndex - 1, 0);
+          } else if (event.key === 'Enter' || event.key === 'Tab') {
+            if (this.ui.commandSelectedIndex >= 0 && this.ui.commandSuggestions[this.ui.commandSelectedIndex]) {
+              event.preventDefault();
+              this.selectCommand(this.ui.commandSuggestions[this.ui.commandSelectedIndex]);
+            }
+          } else if (event.key === 'Escape') {
+            this.ui.showCommandPicker = false;
+          }
+        },
+
+        selectCommand(cmd) {
+          this.newMessageText = '/' + cmd + ' ';
+          this.ui.showCommandPicker = false;
+          // Focus the input
+          this.$nextTick(() => {
+            const inp = document.querySelector('input[x-model="newMessageText"]');
+            if (inp) inp.focus();
+          });
         },
 
         // === @MENTION AUTOCOMPLETE ===
