@@ -1118,6 +1118,7 @@
         channelConfigSource: 'default', // 'relay' | 'localStorage' | 'default'
         _pendingConfig: null, // pending channel config from unknown owner (race mitigation)
         _gracePeriodStarted: false, // prevents starting the grace period multiple times per room
+        _ownerResolvedAt: null, // timestamp when ownership was resolved (pubkey + tiebreaker)
         _ownerClaims: null, // temporary: map of pubkey -> {timestamp, ev} for collecting claims during grace period
         _ownerResolveTimer: null, // setTimeout handle for the grace period resolution
         subscribedRooms: [], // [{slug, pass, displayName}] — rooms explicitly joined
@@ -1653,6 +1654,19 @@
             this.room.ownerDiscovered = true;
             this._ownerResolvedAt = ts;
             this.saveRoomOwner(this.room.slug, pubkey, ts);
+            // Cancel the pending resolve timer
+            if (this._ownerResolveTimer) {
+              clearTimeout(this._ownerResolveTimer);
+              this._ownerResolveTimer = null;
+            }
+            // Apply any pending channel config if it matches this owner
+            if (this._pendingConfig && this._pendingConfig.pubkey === pubkey) {
+              try {
+                const parsed = JSON.parse(this._pendingConfig.content);
+                this.applyChannelConfig(parsed);
+              } catch (e) {}
+              this._pendingConfig = null;
+            }
             console.log('Owner accepted (first external claim):', pubkey.substring(0, 8), 'at', ts);
             return;
           }
@@ -1712,7 +1726,10 @@
             this.publishChannelConfig();
             // Apply any pending config
             if (this._pendingConfig) {
-              this.applyChannelConfig(this._pendingConfig);
+              try {
+                const parsed = JSON.parse(this._pendingConfig.content);
+                this.applyChannelConfig(parsed);
+              } catch (e) {}
               this._pendingConfig = null;
             }
             console.log('Owner resolved: no existing claims, became owner');
@@ -1749,16 +1766,9 @@
             this.saveRoomOwner(this.room.slug, this.user.pk, now);
             this.publishChannelConfig();
           } else {
-            // For non-personal rooms, set up a timeout to claim if no owner found
-            setTimeout(() => {
-              if (!this.room.ownerDiscovered) {
-                this.room.ownerPubkey = this.user.pk;
-                this.room.ownerDiscovered = true;
-                const now = Math.floor(Date.now() / 1000);
-                this._ownerResolvedAt = now;
-                this.saveRoomOwner(this.room.slug, this.user.pk, now);
-              }
-            }, 6000);
+            // For non-personal rooms, set up a timer to resolve ownership
+            // from collected claims, or self-claim if no other owner found
+            this._ownerResolveTimer = setTimeout(() => this._resolveOwnership(), 6000);
           }
         },
 
@@ -1856,11 +1866,11 @@
         async addTextChannel(name) {
           const trimmed = name.trim();
           if (!trimmed) return;
-          if (this.textChannels.find(c => c.name === trimmed)) {
+          const id = trimmed.toLowerCase().replace(/\s+/g, '-');
+          if (this.textChannels.find(c => c.id === id || c.name === trimmed)) {
             this.showToast('Channel already exists');
             return;
           }
-          const id = trimmed.toLowerCase().replace(/\s+/g, '-');
           this.textChannels.push({ id, name: trimmed, unread: false });
           await this.publishChannelConfig();
           this.showToast('Channel #' + trimmed + ' added');
@@ -2027,7 +2037,7 @@
           const filter = {
             kinds: [1, 20000, 25000, 30001],
             '#t': [this.room.slug],
-            since: Math.floor(Date.now() / 1000) - 86400
+            since: Math.floor(Date.now() / 1000) - 86400 * 7
           };
           relay.ws.send(JSON.stringify(['REQ', subId, filter]));
 
@@ -2038,7 +2048,7 @@
             const dmFilter = {
               kinds: [1],
               '#p': [this.user.pk],
-              since: Math.floor(Date.now() / 1000) - 86400
+              since: Math.floor(Date.now() / 1000) - 86400 * 7
             };
             relay.ws.send(JSON.stringify(['REQ', dmSubId, dmFilter]));
           }
@@ -2078,9 +2088,10 @@
           try {
             // Handle binary WebSocket frames
             if (typeof data !== 'string') {
-              data = await new Promise((resolve) => {
+              data = await new Promise((resolve, reject) => {
                 const reader = new FileReader();
                 reader.onload = () => resolve(reader.result);
+                reader.onerror = () => reject(new Error('Binary message read failed'));
                 reader.readAsText(data);
               });
             }
