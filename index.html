@@ -1608,6 +1608,7 @@
             this.room.ownerPubkey = cachedOwner;
             this.room.ownerDiscovered = true;
             this._ownerResolvedAt = 0;
+            this._ownerClaims = {}; // clear any collected claims
             console.log('Owner loaded from cache:', cachedOwner.substring(0, 8));
             // Cancel the grace period timer since we already know the owner
             if (this._ownerResolveTimer) {
@@ -1617,12 +1618,12 @@
             return;
           }
 
-          // Query relays for existing owner events
-          // Use kind:30000 with both #t and #d to maximize matching
+          // Query relays for existing owner events using kind:1 (all relays handle
+          // regular events reliably). Ownership is encoded as type:ownership in the
+          // encrypted payload — same as messages, DMs, votes, etc.
           const ownerFilter = {
-            kinds: [30000],
+            kinds: [1],
             '#t': [this.room.slug],
-            '#d': [this.room.slug],
             limit: 20
           };
           const queryId = 'ownerq_' + this.room.slug.substring(0, 8);
@@ -1632,7 +1633,7 @@
               r.ws.send(msg);
             }
           });
-          // Close the query subscription after 4 seconds
+          // Close the query subscription after 6 seconds
           setTimeout(() => {
             const closeMsg = JSON.stringify(['CLOSE', queryId]);
             this.relays.forEach(r => {
@@ -1640,7 +1641,7 @@
                 r.ws.send(closeMsg);
               }
             });
-          }, 4000);
+          }, 6000);
         },
 
         // Start the grace period for collecting owner claims from relays
@@ -1682,15 +1683,23 @@
 
           const now = Math.floor(Date.now() / 1000);
 
+          // Use kind:1 (regular event) for reliability — all relays handle these well
+          // Ownership is encoded in the encrypted payload, same as messages/votes
+          const ownershipData = {
+            type: 'ownership',
+            owner: this.user.pk,
+            slug: this.room.slug
+          };
+          const encryptedContent = await this.encryptPayload(ownershipData);
           const eventTemplate = {
-            kind: 30000,
+            kind: 1,
             created_at: now,
             tags: [
               ['t', this.room.slug],
-              ['d', this.room.slug],
-              ['alt', 'Chat room owner declaration']
+              // Use a distinctive marker so we can identify ownership events
+              ['ownership', this.user.pk]
             ],
-            content: this.user.pk
+            content: encryptedContent
           };
 
           if (!window.NostrTools || !window.NostrTools.finalizeEvent) return;
@@ -2404,6 +2413,22 @@
           // Handle vote events — apply to poll, don't render as message
           if (payload.type === 'vote' && payload.pollId) {
             this.applyVote(payload.pollId, ev.pubkey, payload.optionId, payload.action || 'vote');
+            return;
+          }
+
+          // Handle ownership events — don't render as message, use for ownership resolution
+          if (payload.type === 'ownership' && payload.owner) {
+            // Process as an owner claim event
+            if (!ev.tags) ev.tags = [];
+            // Override kind to 30000 so the existing handler works
+            this.onIncomingRoomOwnerEvent({
+              id: ev.id,
+              pubkey: ev.pubkey,
+              created_at: ev.created_at,
+              tags: ev.tags,
+              content: payload.owner,
+              kind: 30000
+            });
             return;
           }
 
