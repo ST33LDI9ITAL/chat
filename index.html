@@ -2844,6 +2844,10 @@
         },
 
         toggleGifPicker() {
+          if (!this._gifboxKey) {
+            window.open('https://gifbox.me', '_blank');
+            return;
+          }
           this.ui.showGifPicker = !this.ui.showGifPicker;
           if (this.ui.showGifPicker) {
             this.ui.gifQuery = '';
@@ -2853,16 +2857,10 @@
 
         async searchGifs() {
           const query = this.ui.gifQuery.trim();
-          if (!query) { this.ui.gifResults = []; return; }
+          if (!query || !this._gifboxKey) { this.ui.gifResults = []; return; }
           this.ui.gifLoading = true;
           try {
             const key = this._gifboxKey;
-            if (!key) {
-              window.open('https://gifbox.me', '_blank');
-              this.ui.showGifPicker = false;
-              this.ui.gifLoading = false;
-              return;
-            }
             const res = await fetch(
               'https://compat.gifbox.me/v2/search?q=' + encodeURIComponent(query) + '&media_filter=webm,tinywebm&limit=20&key=' + key
             );
