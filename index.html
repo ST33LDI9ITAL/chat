@@ -1037,6 +1037,7 @@
         user: {
           sk: null,
           pk: '',
+          pubkey: '', // alias for pk (used in member list sorting/badges)
           name: 'AnonPeer',
           avatar: '',
           pubkeyTruncated: ''
@@ -1300,6 +1301,7 @@
             return;
           }
           this.user.pk = window.NostrTools.getPublicKey(this.hexToBytes(skHex));
+          this.user.pubkey = this.user.pk;
 
           this.user.pubkeyTruncated = this.user.pk.substring(0, 8);
           this.user.name = 'Peer_' + this.user.pubkeyTruncated;
