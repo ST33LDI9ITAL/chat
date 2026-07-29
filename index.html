@@ -2978,8 +2978,8 @@
         },
 
         onIncomingPresence(ev, payload) {
-          // Track unique visitors
-          if (ev.pubkey !== this.user.pk) this._countVisitor(ev.pubkey);
+          // Skip own events (relay echoes them back)
+          if (ev.pubkey === this.user.pk) return;
           this.peers[ev.pubkey] = {
             pubkey: ev.pubkey,
             name: payload.name || ('Peer_' + ev.pubkey.substring(0, 8)),
