@@ -1405,6 +1405,7 @@
 
           this.messages = [];
           this.processedEventIds.clear();
+          this.peers = {}; // Clear peers from the previous room
           // Leave DM view when switching rooms
           this.activeDM = null;
           this.activeChannel = 'general';
