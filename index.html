@@ -464,6 +464,9 @@
                             <template x-if="msg.fileProgress === 100">
                               <span class="text-xs text-app-green font-semibold">✅ Downloaded</span>
                             </template>
+                            <template x-if="msg.fileProgress === -1">
+                              <span class="text-xs text-app-red font-semibold">❌ Transfer failed</span>
+                            </template>
                           </div>
                           <!-- Inline video player for completed video transfers -->
                           <template x-if="msg.fileTransferUrl && msg.fileTransfer?.mimeType?.startsWith('video/')">
@@ -3312,11 +3315,34 @@
                 chunksSent++; offset += CHUNK_SIZE;
                 updateProgress(Math.round((chunksSent / totalChunks) * 100));
                 if (offset < file.size) readSlice();
-                else { updateProgress(100); this.showToast('File sent: ' + file.name); }
+                else {
+                  updateProgress(100);
+                  this.showToast('File sent: ' + file.name);
+                  // Clean up pending file reference
+                  delete this._pendingFileTransfers[transferId];
+                }
               };
               readSlice();
             };
-            dc.onerror = () => this.showToast('File transfer failed');
+            dc.onerror = () => {
+              this.showToast('File transfer failed');
+              updateProgress(-1);
+            };
+
+            // Timeout: if data channel doesn't open within 30s, abort
+            const timeout = setTimeout(() => {
+              if (chunksSent === 0) {
+                dc.close();
+                this.showToast('File transfer timed out');
+                updateProgress(-1);
+              }
+            }, 30000);
+            // Clear timeout once transfer starts
+            const origOnOpen = dc.onopen;
+            dc.onopen = () => {
+              clearTimeout(timeout);
+              origOnOpen.call(dc);
+            };
           }, 500);
         },
 
@@ -3338,6 +3364,16 @@
           // But since the sender called initiateFileConnection, an offer is coming.
           // We create our PC first so it'"'s ready.
           const pc = this.createFileConnection(senderPubkey);
+
+          // Timeout: if transfer doesn't start within 30s, abort
+          setTimeout(() => {
+            const transfer = this._fileTransfers?.[transferId];
+            if (transfer && transfer.received === 0) {
+              delete this._fileTransfers[transferId];
+              this.showToast('File transfer timed out');
+              if (msg) msg.fileProgress = -1;
+            }
+          }, 30000);
 
           this.showToast('Waiting for file transfer...');
         },
