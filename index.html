@@ -1994,9 +1994,12 @@
               });
             }
             const msg = JSON.parse(data);
-            // Log relay OK responses to diagnose publish issues
+            // Log relay responses for diagnostics
             if (msg[0] === 'OK') {
-              console.log('Relay OK:', msg[1].substring(0,12), msg[2] ? 'accepted' : 'REJECTED', msg[3] || '');
+              console.log('Relay OK:', msg[1].substring(0,12), msg[2] ? 'accepted' : 'REJECTED', (msg[3] || '').substring(0,60));
+            }
+            if (msg[0] === 'EOSE') {
+              console.log('Relay EOSE for subscription:', msg[1] ? msg[1].substring(0,20) : 'unknown');
             }
             if (msg[0] === 'EVENT' && msg[1]) {
               const ev = msg[1];
