@@ -1188,6 +1188,8 @@
 
         // File transfer state
         _fileTransfers: {}, // transferId -> { chunks: [], received: 0, total: 0, info: {} }
+        _fileConnections: {}, // pubkey -> RTCPeerConnection for file transfers
+        _pendingFileTransfers: {}, // temp msgId -> File object
 
         // Computed
         get connectedRelaysCount() {
@@ -3177,6 +3179,12 @@
 
           const senderPubkey = ev.pubkey;
 
+          // Route file transfer signals to the file handler
+          if (payload.type === 'ft_offer' || payload.type === 'ft_answer') {
+            this.onIncomingFileSignal(ev, payload);
+            return;
+          }
+
           if (payload.type === 'offer') {
             // Reuse existing PC for ICE restart if present
             let pc = this.voice.peerConnections[senderPubkey];
@@ -3227,70 +3235,80 @@
 
         // === FILE TRANSFER (WebRTC data channel over TURN) ===
 
-        // Send a file to a specific peer
+        // Create a dedicated WebRTC connection for file transfer
+        createFileConnection(targetPubkey) {
+          const pc = new RTCPeerConnection({
+            iceServers: this.iceServers,
+            iceTransportPolicy: 'relay'
+          });
+          pc._iceCandidatesQueue = [];
+          this._fileConnections[targetPubkey] = pc;
+
+          pc.onicecandidate = async (e) => {
+            if (e.candidate) {
+              const payload = { type: 'ice', candidate: e.candidate };
+              const encrypted = await this.encryptPayload(payload);
+              await this.publishNostrEvent(25000, encrypted, targetPubkey);
+            }
+          };
+
+          return pc;
+        },
+
+        // Initiate a file transfer connection to a peer
+        async initiateFileConnection(targetPubkey) {
+          const pc = this.createFileConnection(targetPubkey);
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          const payload = { type: 'ft_offer', sdp: offer };
+          const encrypted = await this.encryptPayload(payload);
+          await this.publishNostrEvent(25000, encrypted, targetPubkey);
+          return pc;
+        },
+
+        // Send a file to a specific peer (establishes WebRTC if needed)
         async sendFileToPeer(targetPubkey, msgId, file) {
-          // Generate transfer ID from message ID
           const transferId = msgId;
-          const CHUNK_SIZE = 16384; // 16KB chunks
+          const CHUNK_SIZE = 16384;
           const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
 
-          // Create or reuse WebRTC connection
-          let pc = this.voice.peerConnections[targetPubkey];
-          // If no existing voice connection, we need to initiate one for file transfer
-          if (!pc) {
-            // For now, use existing voice connection. In future, initiate dedicated file transfer PC.
-            this.showToast('Cannot send file: no active connection to peer');
-            return;
-          }
+          // Create dedicated file transfer WebRTC connection
+          const pc = await this.initiateFileConnection(targetPubkey);
+          if (!pc) { this.showToast('File transfer failed to connect'); return; }
 
-          // Create a data channel for this file transfer
-          const dc = pc.createDataChannel('ft_' + transferId);
-          const fileReader = new FileReader();
-          let offset = 0;
-          let chunksSent = 0;
+          // Wait a moment for the connection to establish, then create data channel
+          setTimeout(() => {
+            const dc = pc.createDataChannel('ft_' + transferId);
+            const fileReader = new FileReader();
+            let offset = 0;
+            let chunksSent = 0;
 
-          // Find the message and update its progress
-          const updateProgress = (pct) => {
-            const msg = this.messages.find(m => m.id === msgId) ||
-              Object.values(this.dmMessages).flat().find(m => m.id === msgId);
-            if (msg) msg.fileProgress = pct;
-          };
-
-          dc.onopen = () => {
-            // Send file header first
-            dc.send(JSON.stringify({
-              type: 'file_header',
-              transferId,
-              name: file.name,
-              size: file.size,
-              totalChunks,
-              mimeType: file.type
-            }));
-
-            // Read and send chunks
-            const readSlice = () => {
-              const slice = file.slice(offset, offset + CHUNK_SIZE);
-              fileReader.readAsArrayBuffer(slice);
+            const updateProgress = (pct) => {
+              const msg = this.messages.find(m => m.id === msgId) ||
+                Object.values(this.dmMessages).flat().find(m => m.id === msgId);
+              if (msg) msg.fileProgress = pct;
             };
-            fileReader.onload = () => {
-              dc.send(fileReader.result);
-              chunksSent++;
-              offset += CHUNK_SIZE;
-              updateProgress(Math.round((chunksSent / totalChunks) * 100));
-              if (offset < file.size) {
-                readSlice();
-              } else {
-                updateProgress(100);
-                this.showToast('File sent: ' + file.name);
-              }
-            };
-            readSlice();
-          };
 
-          dc.onerror = (e) => {
-            console.error('File transfer data channel error:', e);
-            this.showToast('File transfer failed');
-          };
+            dc.onopen = () => {
+              dc.send(JSON.stringify({
+                type: 'file_header', transferId, name: file.name,
+                size: file.size, totalChunks, mimeType: file.type
+              }));
+              const readSlice = () => {
+                const slice = file.slice(offset, offset + CHUNK_SIZE);
+                fileReader.readAsArrayBuffer(slice);
+              };
+              fileReader.onload = () => {
+                dc.send(fileReader.result);
+                chunksSent++; offset += CHUNK_SIZE;
+                updateProgress(Math.round((chunksSent / totalChunks) * 100));
+                if (offset < file.size) readSlice();
+                else { updateProgress(100); this.showToast('File sent: ' + file.name); }
+              };
+              readSlice();
+            };
+            dc.onerror = () => this.showToast('File transfer failed');
+          }, 500);
         },
 
         // Accept a file transfer offer
@@ -3299,81 +3317,121 @@
           const senderPubkey = msg.pubkey;
           const transferId = msg.id;
 
-          // Initialize transfer state
-          if (!this._fileTransfers) this._fileTransfers = {};
+          this._fileTransfers = this._fileTransfers || {};
           this._fileTransfers[transferId] = {
-            chunks: [],
-            received: 0,
+            chunks: [], received: 0,
             total: msg.fileTransfer.totalChunks || 0,
             info: msg.fileTransfer
           };
 
-          // Get or create WebRTC connection to sender
-          let pc = this.voice.peerConnections[senderPubkey];
-          if (!pc) {
-            this.showToast('No connection to sender');
-            return;
-          }
-
-          // Listen for the data channel
-          pc.ondatachannel = (e) => {
-            const dc = e.channel;
-            if (!dc.label.startsWith('ft_')) return;
-
-            let headerReceived = false;
-            const transfer = this._fileTransfers[transferId];
-
-            dc.onmessage = (ev) => {
-              if (!headerReceived) {
-                // First message is the header
-                try {
-                  const header = JSON.parse(ev.data);
-                  if (header.type === 'file_header') {
-                    headerReceived = true;
-                    transfer.total = header.totalChunks;
-                    transfer.info = header;
-                    msg.fileProgress = 0;
-                    return;
-                  }
-                } catch (e) {}
-              }
-
-              // File chunk data
-              transfer.chunks.push(ev.data);
-              transfer.received++;
-              const pct = Math.round((transfer.received / transfer.total) * 100);
-              msg.fileProgress = pct;
-
-              if (transfer.received >= transfer.total) {
-                // All chunks received — assemble and download
-                this._assembleFile(transferId, msg);
-              }
-            };
-          };
+          // Create a file transfer connection (this will make us the offerer? No — the sender already
+          // initiated the connection. We need to wait for the incoming offer via onIncomingFileSignal.
+          // But since the sender called initiateFileConnection, an offer is coming.
+          // We create our PC first so it'"'s ready.
+          const pc = this.createFileConnection(senderPubkey);
 
           this.showToast('Waiting for file transfer...');
+        },
+
+        // Handle file transfer WebRTC signaling (kind:25000 with ft_* types)
+        async onIncomingFileSignal(ev, payload) {
+          if (ev.pubkey === this.user.pk) return;
+          const senderPubkey = ev.pubkey;
+          let pc = this._fileConnections[senderPubkey];
+
+          if (payload.type === 'ft_offer') {
+            if (!pc) pc = this.createFileConnection(senderPubkey);
+            await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+            while (pc._iceCandidatesQueue?.length) {
+              await pc.addIceCandidate(pc._iceCandidatesQueue.shift()).catch(() => {});
+            }
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            const reply = { type: 'ft_answer', sdp: answer };
+            const encrypted = await this.encryptPayload(reply);
+            await this.publishNostrEvent(25000, encrypted, senderPubkey);
+
+            // Listen for data channel on this PC
+            pc.ondatachannel = (e) => {
+              this._handleFileDataChannel(e.channel);
+            };
+
+          } else if (payload.type === 'ft_answer') {
+            if (!pc) return;
+            await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+            while (pc._iceCandidatesQueue?.length) {
+              await pc.addIceCandidate(pc._iceCandidatesQueue.shift()).catch(() => {});
+            }
+          } else if (payload.type === 'ice') {
+            if (!pc) return;
+            const cand = new RTCIceCandidate(payload.candidate);
+            if (pc.remoteDescription?.type) {
+              await pc.addIceCandidate(cand).catch(() => {});
+            } else {
+              (pc._iceCandidatesQueue = pc._iceCandidatesQueue || []).push(cand);
+            }
+          }
+        },
+
+        // Handle incoming file data channel messages
+        _handleFileDataChannel(dc) {
+          const transferId = dc.label.replace('ft_', '');
+          if (!transferId) return;
+
+          const transfer = this._fileTransfers?.[transferId];
+          if (!transfer) return;
+
+          let headerReceived = false;
+          const findMsg = () =>
+            this.messages.find(m => m.id === transferId) ||
+            Object.values(this.dmMessages).flat().find(m => m.id === transferId);
+
+          dc.onmessage = (ev) => {
+            if (!headerReceived) {
+              try {
+                const header = JSON.parse(ev.data);
+                if (header.type === 'file_header') {
+                  headerReceived = true;
+                  transfer.total = header.totalChunks;
+                  transfer.info = header;
+                  const msg = findMsg();
+                  if (msg) msg.fileProgress = 0;
+                  return;
+                }
+              } catch (e) {}
+            }
+
+            transfer.chunks.push(ev.data);
+            transfer.received++;
+            const pct = Math.round((transfer.received / transfer.total) * 100);
+            const msg = findMsg();
+            if (msg) msg.fileProgress = pct;
+
+            if (transfer.received >= transfer.total) {
+              this._assembleFile(transferId);
+            }
+          };
         },
 
         // Reassemble chunks and trigger download
         _assembleFile(transferId, msg) {
           const transfer = this._fileTransfers?.[transferId];
           if (!transfer || !transfer.chunks.length) return;
-
+          msg = msg || this.messages.find(m => m.id === transferId) ||
+            Object.values(this.dmMessages).flat().find(m => m.id === transferId);
           try {
             const blob = new Blob(transfer.chunks, { type: transfer.info.mimeType || 'application/octet-stream' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
-            a.href = url;
-            a.download = transfer.info.name || 'download';
+            a.href = url; a.download = transfer.info.name || 'download';
             a.click();
             URL.revokeObjectURL(url);
-            msg.fileProgress = 100;
+            if (msg) msg.fileProgress = 100;
             this.showToast('Downloaded: ' + (transfer.info.name || 'file'));
           } catch (e) {
             console.error('File assembly failed:', e);
             this.showToast('File download failed');
           }
-
           delete this._fileTransfers[transferId];
         },
 
