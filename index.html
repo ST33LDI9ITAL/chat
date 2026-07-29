@@ -683,13 +683,18 @@
               <div x-show="ui.gifLoading" class="text-center text-gray-500 text-xs py-8">Searching...</div>
               <div class="flex-1 overflow-y-auto p-2 grid grid-cols-2 gap-2">
                 <template x-for="gif in ui.gifResults" :key="gif.id">
-                  <img :src="gif.url" @click="insertGif(gif.url)"
+                  <img :src="gif.preview || gif.url" @click="insertGif(gif.url)"
                        class="w-full rounded cursor-pointer hover:opacity-80 transition object-cover"
                        style="aspect-ratio: 1" loading="lazy" />
                 </template>
                 <template x-if="!ui.gifLoading && !_gifboxKey">
                   <div class="col-span-2 text-center text-gray-500 text-xs py-8">No GIF API key configured</div>
                 </template>
+                <!-- Empty state when no search yet -->
+                <template x-if="!ui.gifLoading && _gifboxKey && !ui.gifQuery && ui.gifResults.length === 0">
+                  <div class="col-span-2 text-center text-gray-500 text-xs py-8">Search for GIFs...</div>
+                </template>
+                <!-- Empty state when search returned no results -->
                 <template x-if="!ui.gifLoading && _gifboxKey && ui.gifQuery && ui.gifResults.length === 0">
                   <div class="col-span-2 text-center text-gray-500 text-xs py-8">No GIFs found</div>
                 </template>
@@ -2908,10 +2913,11 @@
             );
             const data = await res.json();
             this.ui.gifResults = (data.results || []).map(function(r) {
+              const fm = r.media_formats || {};
               return {
                 id: r.id,
-                url: (r.media_formats && r.media_formats.webm && r.media_formats.webm.url) ||
-                     (r.media_formats && r.media_formats.tinywebm && r.media_formats.tinywebm.url) || ''
+                preview: (fm.preview && fm.preview.url) || '',
+                url: (fm.webm && fm.webm.url) || (fm.mp4 && fm.mp4.url) || (fm.gif && fm.gif.url) || ''
               };
             }).filter(function(r) { return r.url; });
           } catch (e) {
