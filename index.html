@@ -658,8 +658,14 @@
               </div>
             </div>
 
-            <!-- Remote Peers -->
-            <template x-for="peer in activePeerList" :key="peer.pubkey">
+            <!-- Remote Peers (sorted: owner first, then moderators, then users) -->
+            <template x-for="peer in activePeerList.slice().sort((a, b) => {
+              const aIsOwner = a.pubkey === room.ownerPubkey ? 0 : 1;
+              const bIsOwner = b.pubkey === room.ownerPubkey ? 0 : 1;
+              const aIsMod = aIsOwner === 0 ? 0 : (room.moderators && room.moderators.includes(a.pubkey) ? 1 : 2);
+              const bIsMod = bIsOwner === 0 ? 0 : (room.moderators && room.moderators.includes(b.pubkey) ? 1 : 2);
+              return aIsMod - bIsMod;
+            })" :key="peer.pubkey">
               <div class="flex flex-col p-1.5 rounded hover:bg-app-hoverBg cursor-pointer space-y-1" @click="openDM(peer.pubkey)">
                 <div class="flex items-center space-x-2.5">
                   <div class="relative shrink-0">
