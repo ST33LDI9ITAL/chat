@@ -2702,6 +2702,7 @@
           this.ui.showEmojiPicker = true;
         },
 
+        // Unified handler for all emoji picker selections
         onEmojiPickerSelect(event) {
           if (!event.detail || !event.detail.unicode) return;
           const emoji = event.detail.unicode;
