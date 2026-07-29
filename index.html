@@ -134,11 +134,8 @@
         </span>
       </button>
 
-      <!-- Spacer to separate relays from room list -->
-      <div class="mt-auto"></div>
-
-      <!-- Relay Health Indicator -->
-      <div class="flex flex-col items-center space-y-2 pb-3 shrink-0">
+      <!-- Relay Health Indicator with gap above -->
+      <div class="flex flex-col items-center space-y-2 pb-3 pt-4 shrink-0">
         <div class="relative group cursor-pointer" @click="ui.showProfileModal = true">
           <div class="w-3 h-3 rounded-full"
                :class="connectedRelaysCount > 0 ? 'bg-app-green shadow-[0_0_8px_#23a55a]' : 'bg-app-red animate-pulse'"></div>
