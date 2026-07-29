@@ -2161,6 +2161,8 @@
         },
 
         async broadcastPresence() {
+          // Skip if room key is not ready (presence requires encryption)
+          if (!this.room.key) return;
           const payload = {
             type: 'presence',
             name: this.user.name,
@@ -2170,8 +2172,12 @@
             muted: this.voice.muted,
             deafened: this.voice.deafened
           };
-          const encrypted = await this.encryptPayload(payload);
-          await this.publishNostrEvent(20000, encrypted);
+          try {
+            const encrypted = await this.encryptPayload(payload);
+            await this.publishNostrEvent(20000, encrypted);
+          } catch (e) {
+            console.warn('broadcastPresence failed:', e);
+          }
         },
 
         onIncomingPresence(ev, payload) {
