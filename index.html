@@ -1589,11 +1589,39 @@
           console.log('Owner resolved: no existing claims, became owner');
         },
 
+        // Query all connected relays for existing owner declarations
+        _queryRoomOwner() {
+          const ownerFilter = {
+            kinds: [30000],
+            '#t': [this.room.slug],
+            '#d': [this.room.slug],
+            limit: 10
+          };
+          const queryId = 'ownerq_' + this.room.slug.substring(0, 8);
+          const msg = JSON.stringify(['REQ', queryId, ownerFilter]);
+          this.relays.forEach(r => {
+            if (r.ws && r.ws.readyState === WebSocket.OPEN) {
+              r.ws.send(msg);
+            }
+          });
+          // Close the query subscription after 2 seconds (we'll collect results via onIncomingRoomOwnerEvent)
+          setTimeout(() => {
+            const closeMsg = JSON.stringify(['CLOSE', queryId]);
+            this.relays.forEach(r => {
+              if (r.ws && r.ws.readyState === WebSocket.OPEN) {
+                r.ws.send(closeMsg);
+              }
+            });
+          }, 2000);
+        },
+
         // Start the grace period for collecting owner claims from relays
         // Called when the first relay connects (subscription is active)
         _startOwnerGracePeriod() {
           // Mark as started so subscribeRelay doesn't trigger it again
           this._gracePeriodStarted = true;
+          // Explicitly query relays for existing owner declarations
+          this._queryRoomOwner();
           // Initialize or reset the claims map
           this._ownerClaims = {};
           this._ownerResolvedAt = 0;
@@ -1610,8 +1638,9 @@
             this.room.ownerClaimTimer = null;
           }
 
-          // Start 8-second grace period to collect existing owner claims from relays
-          this._ownerResolveTimer = setTimeout(() => this._resolveOwnership(), 4000);
+          // Start grace period to collect existing owner claims from relays
+          // Extended to 8s to allow for relay propagation delays
+          this._ownerResolveTimer = setTimeout(() => this._resolveOwnership(), 8000);
         },
 
         // Claim ownership of the current room (publish kind:30000)
