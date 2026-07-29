@@ -2895,12 +2895,14 @@
           if (this.ui.showGifPicker) {
             this.ui.gifQuery = '';
             this.ui.gifResults = [];
+            // Load featured GIFs immediately
+            this.searchGifs(true);
           }
         },
 
-        async searchGifs() {
+        async searchGifs(featured) {
           const query = this.ui.gifQuery.trim();
-          if (!query) { this.ui.gifResults = []; return; }
+          if (!query && !featured) { this.ui.gifResults = []; return; }
           if (!this._gifboxKey) {
             this.ui.gifResults = [];
             return;
@@ -2908,9 +2910,10 @@
           this.ui.gifLoading = true;
           try {
             const key = this._gifboxKey;
-            const res = await fetch(
-              'https://compat.gifbox.me/v2/search?q=' + encodeURIComponent(query) + '&media_filter=webm,tinywebm&limit=20&key=' + key
-            );
+            const endpoint = featured
+              ? 'https://compat.gifbox.me/v2/featured?media_filter=webm,tinywebm&limit=20&key=' + key
+              : 'https://compat.gifbox.me/v2/search?q=' + encodeURIComponent(query) + '&media_filter=webm,tinywebm&limit=20&key=' + key;
+            const res = await fetch(endpoint);
             const data = await res.json();
             this.ui.gifResults = (data.results || []).map(function(r) {
               const fm = r.media_formats || {};
