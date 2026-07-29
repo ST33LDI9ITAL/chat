@@ -150,15 +150,15 @@
       
       <!-- Room Title Header -->
       <div class="h-12 border-b border-[#1e1f22] px-4 flex items-center justify-between font-bold text-gray-100 shadow-sm">
-        <div class="flex items-center space-x-2 truncate">
-          <i data-lucide="lock" class="w-4 h-4 text-app-green" x-show="room.pass"></i>
-          <i data-lucide="globe" class="w-4 h-4 text-gray-400" x-show="!room.pass"></i>
+        <div class="flex items-center space-x-1 min-w-0 flex-1">
+          <i data-lucide="lock" class="w-4 h-4 text-app-green shrink-0" x-show="room.pass"></i>
+          <i data-lucide="globe" class="w-4 h-4 text-gray-400 shrink-0" x-show="!room.pass"></i>
           <span class="truncate text-sm" x-text="room.displayName || '#' + room.slug"></span>
           <!-- Owner badge -->
-          <span x-show="room.ownerPubkey === user.pk" class="text-[10px] text-yellow-400 font-bold" title="Room Owner">👑</span>
-          <span x-show="room.ownerPubkey && room.ownerPubkey !== user.pk" class="text-[10px] text-gray-500" title="Owned by another user">👑</span>
+          <span x-show="room.ownerPubkey === user.pk" class="text-[10px] text-yellow-400 font-bold shrink-0" title="Room Owner">👑</span>
+          <span x-show="room.ownerPubkey && room.ownerPubkey !== user.pk" class="text-[10px] text-gray-500 shrink-0" title="Owned by another user">👑</span>
           <!-- Room Settings button (owner only) -->
-          <button x-show="user.pk === room.ownerPubkey" @click="openRoomSettings()" class="text-gray-500 hover:text-white transition p-0.5 rounded ml-1" title="Room Settings">
+          <button x-show="user.pk === room.ownerPubkey" @click="openRoomSettings()" class="text-gray-500 hover:text-white transition p-0.5 rounded shrink-0" title="Room Settings">
             <i data-lucide="settings" class="w-3 h-3"></i>
           </button>
         </div>
@@ -1007,6 +1007,7 @@
         // Tracks the source of the current channel config (for debugging/fallback)
         channelConfigSource: 'default', // 'relay' | 'localStorage' | 'default'
         _pendingConfig: null, // pending channel config from unknown owner (race mitigation)
+        _ownerClaimedAt: 0, // timestamp of the owner event we accepted (for race resolution)
         recentRooms: [], // [{slug, pass, displayName, lastSeen}] — rooms joined via switchRoom
 
         // UI Controls
@@ -1497,29 +1498,35 @@
 
         // Handle incoming room owner declaration event (kind:30000)
         onIncomingRoomOwnerEvent(ev) {
-          // If we had a pending claim and this is our own echo, confirm it
-          if (ev.pubkey === this.user.pk && !this.room.ownerDiscovered) {
-            this.room.ownerPubkey = this.user.pk;
-            this.room.ownerDiscovered = true;
-            this.saveRoomOwner(this.room.slug, this.user.pk);
-            console.log('Ownership confirmed via relay echo');
+          // Accept any owner declaration (our own echo or another user)
+          // Use timestamp comparison: the earliest claim wins
+          const incomingTs = ev.created_at;
+
+          // If we already have an owner, only accept if incoming has earlier timestamp
+          if (this.room.ownerDiscovered && this.room.ownerPubkey) {
+            if (incomingTs < this._ownerClaimedAt) {
+              // Incoming event is older than our claim — they were first
+              this.room.ownerPubkey = ev.pubkey;
+              this.room.ownerDiscovered = true;
+              this.saveRoomOwner(this.room.slug, ev.pubkey);
+              console.log('Room owner updated to earlier claim:', ev.pubkey.substring(0, 8));
+            }
             return;
           }
 
-          // Accept other owners only if we haven'\''t discovered one yet
-          if (this.room.ownerDiscovered) return;
-
+          // No owner yet — accept this one
           this.room.ownerPubkey = ev.pubkey;
           this.room.ownerDiscovered = true;
+          this._ownerClaimedAt = incomingTs;
 
-          // Cancel any pending claim timer — someone else already owns this room
+          // Cache owner in localStorage
+          this.saveRoomOwner(this.room.slug, ev.pubkey);
+
+          // Cancel any pending claim timer
           if (this.room.ownerClaimTimer) {
             clearTimeout(this.room.ownerClaimTimer);
             this.room.ownerClaimTimer = null;
           }
-
-          // Cache owner in localStorage
-          this.saveRoomOwner(this.room.slug, ev.pubkey);
 
           // Apply any pending config that arrived before the owner declaration
           if (this._pendingConfig && this._pendingConfig.pubkey === ev.pubkey) {
@@ -1533,16 +1540,20 @@
             this._pendingConfig = null;
           }
 
-          console.log('Room owner discovered:', ev.pubkey.substring(0, 8));
+          console.log('Room owner discovered/set:', ev.pubkey.substring(0, 8), 'timestamp:', incomingTs);
         },
 
         // Claim ownership of the current room (publish kind:30000)
         async claimRoomOwnership() {
           if (this.room.ownerDiscovered || !this.user.pk) return;
 
+          const now = Math.floor(Date.now() / 1000);
+          // Record our claim timestamp for race resolution
+          this._ownerClaimedAt = now;
+
           const eventTemplate = {
             kind: 30000,
-            created_at: Math.floor(Date.now() / 1000),
+            created_at: now,
             tags: [
               ['t', this.room.slug],
               ['d', this.room.slug],
@@ -1559,6 +1570,7 @@
             if (r.ws && r.ws.readyState === WebSocket.OPEN) r.ws.send(msgFrame);
           });
 
+          console.log('Claimed room ownership at', this._ownerClaimedAt);
           // Publish initial channel config (ownership is tentative until relay confirms)
           await this.publishChannelConfig();
         },
