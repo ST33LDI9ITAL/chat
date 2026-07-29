@@ -1655,8 +1655,16 @@
           this.room.ownerDiscovered = false;
           this.room.ownerPubkey = null;
 
+          // Check cache FIRST — if we already know the owner, skip claiming
+          const cachedOwner = this.loadRoomOwner(this.room.slug);
+          if (cachedOwner) {
+            this.room.ownerPubkey = cachedOwner;
+            this.room.ownerDiscovered = true;
+            console.log('Owner loaded from cache (grace period):', cachedOwner.substring(0, 8));
+            return;
+          }
+
           // Publish our own claim immediately so other peers can discover us
-          // during the grace period (don't wait for the grace period to end)
           this.claimRoomOwnership();
 
           // Explicitly query relays for existing owner declarations
