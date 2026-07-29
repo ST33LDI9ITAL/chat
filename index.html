@@ -570,8 +570,8 @@
         </button>
       </div>
 
-      <!-- Message Input Box -->
-      <div class="p-4 bg-app-channelBg">
+      <!-- Message Input Box (drag-drop zone for images) -->
+      <div class="p-4 bg-app-channelBg" @drop.prevent="onDrop($event)" @dragover.prevent>
         <div class="bg-[#383a40] rounded-lg p-2.5 flex items-center space-x-3 shadow-inner border border-gray-700/30 relative">
           
           <!-- @mention Autocomplete Dropdown -->
@@ -587,19 +587,27 @@
             </template>
           </div>
 
-          <!-- Add Attachment / Link helper -->
+          <!-- Add Attachment / Link helper (also click to add image) -->
           <button @click="promptMediaUrl()" class="text-gray-400 hover:text-white transition" title="Embed Media Link">
             <i data-lucide="plus-circle" class="w-5 h-5"></i>
           </button>
+          <!-- Image upload button -->
+          <button @click="document.getElementById('fileInput').click()" class="text-gray-400 hover:text-green-400 transition" title="Upload Image">
+            <i data-lucide="image" class="w-5 h-5"></i>
+          </button>
 
-          <!-- Input Textarea -->
+          <!-- Input Textarea (supports paste for images) -->
           <input type="text" x-model="newMessageText"
                  @keydown.enter.prevent="sendMessage()"
                  @input="onMentionInput($event)"
                  @keydown="onMentionKeydown($event)"
                  @blur="onMentionBlur()"
+                 @paste="onPaste($event)"
                  :placeholder="activeDM ? 'Message ' + getDMChannelName(activeDM) + '...' : 'Message #' + activeChannel + '...'"
                  class="w-full bg-transparent text-sm text-gray-100 placeholder-gray-500 focus:outline-none" />
+
+          <!-- Hidden file input for drag-and-drop images -->
+          <input type="file" id="fileInput" accept="image/*" multiple class="hidden" @change="onFileSelect($event)" />
 
           <!-- Emoji Picker Toggle -->
           <div class="relative">
@@ -2507,9 +2515,9 @@
         parseRichContent(rawText) {
           if (!rawText) return { text: '', embeds: [] };
           const embeds = [];
-          const urlRegex = /(https?:\/\/[^\s]+)/g;
+          const mediaRegex = /(https?:\/\/[^\s]+|data:image\/[^\s]+)/g;
 
-          let html = rawText.replace(urlRegex, (url) => {
+          let html = rawText.replace(mediaRegex, (url) => {
             const cleanUrl = url.trim();
 
             // YouTube Match
@@ -2676,6 +2684,64 @@
             const data = JSON.parse(localStorage.getItem('chat_recent_rooms') || '[]');
             this.recentRooms = data;
           } catch (e) { this.recentRooms = []; }
+        },
+
+        // Convert a pasted/dropped file to a data URI and insert into message
+        _fileToDataUri(file) {
+          return new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve(e.target.result);
+            reader.readAsDataURL(file);
+          });
+        },
+
+        // Handle paste events (images from clipboard)
+        async onPaste(event) {
+          const items = event.clipboardData?.items;
+          if (!items) return;
+          for (const item of items) {
+            if (item.type.startsWith('image/')) {
+              event.preventDefault();
+              const file = item.getAsFile();
+              if (!file) continue;
+              const dataUri = await this._fileToDataUri(file);
+              this.newMessageText += ' ' + dataUri + ' ';
+              // Auto-send if in DM or channel
+              if (!this.newMessageText.trim()) return;
+              // Check if we should auto-send (single image paste)
+              if (this.newMessageText.trim().startsWith('data:image/')) {
+                // Give a moment for the paste to settle, then send
+                setTimeout(() => this.sendMessage(), 100);
+              }
+            }
+          }
+        },
+
+        // Handle file selection from the upload button
+        async onFileSelect(event) {
+          const files = event.target.files;
+          if (!files || !files.length) return;
+          for (const file of files) {
+            if (file.type.startsWith('image/')) {
+              const dataUri = await this._fileToDataUri(file);
+              this.newMessageText += ' ' + dataUri + ' ';
+            }
+          }
+          event.target.value = '';
+          setTimeout(() => this.sendMessage(), 100);
+        },
+
+        // Handle drag-and-drop of images
+        async onDrop(event) {
+          const files = event.dataTransfer?.files;
+          if (!files || !files.length) return;
+          for (const file of files) {
+            if (file.type.startsWith('image/')) {
+              const dataUri = await this._fileToDataUri(file);
+              this.newMessageText += ' ' + dataUri + ' ';
+            }
+          }
+          setTimeout(() => this.sendMessage(), 100);
         },
 
         promptMediaUrl() {
