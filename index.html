@@ -653,9 +653,9 @@
                  class="w-full bg-transparent text-sm text-gray-100 placeholder-gray-500 focus:outline-none" />
 
           <!-- Command Autocomplete Dropdown -->
-          <div x-show="ui.showCommandPicker" x-ref="commandPicker"
+          <div x-show="ui.showCommandPicker"
                class="absolute bottom-full left-0 mb-1 w-56 max-h-48 overflow-y-auto bg-[#2b2d31] border border-gray-700 rounded-lg shadow-xl z-50"
-               x-effect="$nextTick(() => { const el = $refs.commandPicker?.children[ui.commandSelectedIndex]; if (el) el.scrollIntoView({ block: 'nearest' }); })">
+               x-effect="$nextTick(() => { const el = $el.querySelectorAll('div.px-3')[ui.commandSelectedIndex]; if (el) el.scrollIntoView({ block: 'nearest' }); })">
             <template x-for="(cmd, idx) in ui.commandSuggestions" :key="cmd">
               <div class="px-3 py-2 text-xs cursor-pointer flex items-center justify-between"
                    :class="idx === ui.commandSelectedIndex ? 'bg-app-accent/30 text-white' : 'text-gray-300 hover:bg-app-hoverBg hover:text-white'"
