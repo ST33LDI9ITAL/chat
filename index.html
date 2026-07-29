@@ -2691,13 +2691,19 @@
             );
             const data = await res.json();
             // Gifbox API returns results with ticket.variants — extract MP4 URL for each
-            this.ui.gifResults = (data.results || []).map(r => ({
-              id: r.id,
-              url: (r.ticket?.variants || []).find(v => v.variantType === 'mp4')?.s3Key ||
-                   (r.ticket?.variants || []).find(v => v.variantType === 'gif_high')?.s3Key,
-              // Build full URL
-              media: [{ gif: { url: 'https://gifbox.me/' + ((r.ticket?.variants || []).find(v => v.variantType === 'mp4')?.s3Key || '') } }]
-            })).filter(r => r.url);
+            this.ui.gifResults = (data.results || []).map(r => {
+              const variants = r.ticket?.variants || [];
+              // Prefer webm (smaller), fall back to mp4, then gif_high
+              const best = variants.find(v => v.variantType === 'webm') ||
+                           variants.find(v => v.variantType === 'mp4') ||
+                           variants.find(v => v.variantType === 'gif_high');
+              if (!best?.s3Key) return null;
+              return {
+                id: r.id,
+                url: 'https://gifbox.me/' + best.s3Key,
+                media: [{ gif: { url: 'https://gifbox.me/' + best.s3Key } }]
+              };
+            }).filter(Boolean);
           } catch (e) {
             console.error('GIF search failed:', e);
           }
