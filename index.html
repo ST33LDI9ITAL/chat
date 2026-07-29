@@ -595,6 +595,10 @@
           <button @click="document.getElementById('fileInput').click()" class="text-gray-400 hover:text-green-400 transition" title="Upload Image">
             <i data-lucide="image" class="w-5 h-5"></i>
           </button>
+          <!-- GIF search button -->
+          <button @click="toggleGifPicker()" class="text-gray-400 hover:text-purple-400 transition" title="Search GIFs">
+            <i data-lucide="gif" class="w-5 h-5"></i>
+          </button>
 
           <!-- Input Textarea (supports paste for images) -->
           <input type="text" x-model="newMessageText"
@@ -619,6 +623,28 @@
             <div x-show="ui.showEmojiPicker" @click.outside="ui.showEmojiPicker = false" 
                  class="absolute right-0 bottom-10 z-50 shadow-2xl rounded-lg overflow-hidden border border-gray-700">
               <emoji-picker @emoji-click="onEmojiPickerSelect($event)"></emoji-picker>
+            </div>
+          </div>
+
+          <!-- GIF Picker -->
+          <div class="relative" x-data="{ open: false }">
+            <div x-show="ui.showGifPicker" @click.outside="ui.showGifPicker = false"
+                 class="absolute right-0 bottom-10 z-50 w-80 h-80 bg-[#2b2d31] border border-gray-700 rounded-lg shadow-2xl flex flex-col overflow-hidden">
+              <div class="p-2 border-b border-gray-700 flex">
+                <input type="text" x-model="ui.gifQuery" @input="searchGifs()" @keydown.enter.prevent="searchGifs()"
+                       placeholder="Search GIFs..."
+                       class="flex-1 bg-[#1e1f22] text-sm text-gray-100 p-2 rounded border border-gray-700 focus:outline-none focus:ring-1 focus:ring-app-accent" />
+              </div>
+              <div class="flex-1 overflow-y-auto p-2 grid grid-cols-2 gap-2">
+                <template x-for="gif in ui.gifResults" :key="gif.id">
+                  <img :src="gif.media[0].gif.url" @click="insertGif(gif.media[0].gif.url)"
+                       class="w-full rounded cursor-pointer hover:opacity-80 transition object-cover"
+                       style="aspect-ratio: 1" loading="lazy" />
+                </template>
+                <template x-if="ui.gifResults.length === 0 && ui.gifQuery">
+                  <div class="col-span-2 text-center text-gray-500 text-xs py-8">No GIFs found</div>
+                </template>
+              </div>
             </div>
           </div>
 
@@ -1055,6 +1081,9 @@
           showRoomModal: false,
           showProfileModal: false,
           showEmojiPicker: false,
+          showGifPicker: false,
+          gifQuery: '',
+          gifResults: [],
           showMediaModal: false,
           mediaModalUrl: '',
           mediaModalType: 'image',
@@ -2578,6 +2607,34 @@
         },
 
         // Unified handler for all emoji picker selections
+        toggleGifPicker() {
+          this.ui.showGifPicker = !this.ui.showGifPicker;
+          if (this.ui.showGifPicker) {
+            this.ui.gifQuery = '';
+            this.ui.gifResults = [];
+          }
+        },
+
+        async searchGifs() {
+          const query = this.ui.gifQuery.trim();
+          if (!query) { this.ui.gifResults = []; return; }
+          try {
+            const res = await fetch(
+              `https://gifbox.me/api/v1/search?q=${encodeURIComponent(query)}&limit=12`
+            );
+            const data = await res.json();
+            this.ui.gifResults = data.results || [];
+          } catch (e) {
+            console.error('GIF search failed:', e);
+          }
+        },
+
+        insertGif(url) {
+          this.newMessageText += ' ' + url + ' ';
+          this.ui.showGifPicker = false;
+          setTimeout(() => this.sendMessage(), 100);
+        },
+
         onEmojiPickerSelect(event) {
           if (!event.detail || !event.detail.unicode) return;
           const emoji = event.detail.unicode;
