@@ -1576,7 +1576,7 @@
             this.room.ownerDiscovered = true;
             this._ownerResolvedAt = bestTs;
             this.saveRoomOwner(this.room.slug, bestPubkey);
-            console.log('Owner resolved (from collected claims):', bestPubkey.substring(0, 8));
+            console.log('Owner resolved (from collected claims):', bestPubkey.substring(0, 8), 'ts:', bestTs, 'claims:', Object.keys(this._ownerClaims).length);
             return;
           }
 
@@ -1643,7 +1643,7 @@
           if (!this._ownerClaims) this._ownerClaims = {};
           this._ownerClaims[this.user.pk] = now;
 
-          console.log('Claimed room ownership for', this.room.slug, 'at', now);
+          console.log('Claimed room ownership for', this.room.slug, 'at', now, 'pubkey:', this.user.pk.substring(0,12));
           await this.publishChannelConfig();
         },
 
