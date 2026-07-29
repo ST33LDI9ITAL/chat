@@ -539,7 +539,7 @@
                             <img :src="embed.url" @click="openMediaModal(embed.url, 'image')" class="max-h-72 rounded-lg border border-gray-800 hover:opacity-95 transition cursor-pointer object-cover" />
                           </template>
                           <template x-if="embed.type === 'video'">
-                            <video autoplay loop muted playsinline controls class="max-h-72 w-full rounded-lg border border-gray-800 bg-black"><source :src="embed.url" /></video>
+                            <video autoplay loop muted playsinline class="max-h-72 w-full rounded-lg border border-gray-800 bg-black object-contain" @loadedmetadata="scrollToBottom()"><source :src="embed.url" /></video>
                           </template>
                         </div>
                       </template>
@@ -593,7 +593,7 @@
                             <img :src="embed.url" @click="openMediaModal(embed.url, 'image')" class="max-h-72 rounded-lg border border-gray-800 cursor-pointer" />
                           </template>
                           <template x-if="embed.type === 'video'">
-                            <video autoplay loop muted playsinline controls class="max-h-72 w-full rounded-lg border border-gray-800 bg-black"><source :src="embed.url" /></video>
+                            <video autoplay loop muted playsinline class="max-h-72 w-full rounded-lg border border-gray-800 bg-black object-contain" @loadedmetadata="scrollToBottom()"><source :src="embed.url" /></video>
                           </template>
                         </div>
                       </template>
