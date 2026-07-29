@@ -1576,17 +1576,24 @@
             this.room.ownerDiscovered = true;
             this._ownerResolvedAt = bestTs;
             this.saveRoomOwner(this.room.slug, bestPubkey);
+            // If we'\''re the owner, publish our channel config
+            if (bestPubkey === this.user.pk) {
+              this.publishChannelConfig();
+            }
             console.log('Owner resolved (from collected claims):', bestPubkey.substring(0, 8), 'ts:', bestTs, 'claims:', Object.keys(this._ownerClaims).length);
             return;
           }
 
-          // No claims collected — publish our claim and become owner
-          await this.claimRoomOwnership();
-          this.room.ownerPubkey = this.user.pk;
-          this.room.ownerDiscovered = true;
-          this._ownerResolvedAt = Math.floor(Date.now() / 1000);
-          this.saveRoomOwner(this.room.slug, this.user.pk);
-          console.log('Owner resolved: no existing claims, became owner');
+          // No other claims found — confirm ourselves as owner
+          // (claim was already published in _startOwnerGracePeriod)
+          if (!this.room.ownerDiscovered) {
+            this.room.ownerPubkey = this.user.pk;
+            this.room.ownerDiscovered = true;
+            this._ownerResolvedAt = Math.floor(Date.now() / 1000);
+            this.saveRoomOwner(this.room.slug, this.user.pk);
+            this.publishChannelConfig();
+            console.log('Owner resolved: no existing claims, became owner');
+          }
         },
 
         // Query all connected relays for existing owner declarations
@@ -1620,13 +1627,18 @@
         _startOwnerGracePeriod() {
           // Mark as started so subscribeRelay doesn't trigger it again
           this._gracePeriodStarted = true;
-          // Explicitly query relays for existing owner declarations
-          this._queryRoomOwner();
-          // Initialize or reset the claims map
+          // Initialize or reset the claims map (BEFORE query so results are collected)
           this._ownerClaims = {};
           this._ownerResolvedAt = 0;
           this.room.ownerDiscovered = false;
           this.room.ownerPubkey = null;
+
+          // Publish our own claim immediately so other peers can discover us
+          // during the grace period (don't wait for the grace period to end)
+          this.claimRoomOwnership();
+
+          // Explicitly query relays for existing owner declarations
+          this._queryRoomOwner();
 
           // Clear any existing timer
           if (this._ownerResolveTimer) {
@@ -1673,7 +1685,7 @@
           this._ownerClaims[this.user.pk] = now;
 
           console.log('Claimed room ownership for', this.room.slug, 'at', now, 'pubkey:', this.user.pk.substring(0,12));
-          await this.publishChannelConfig();
+          // Channel config is published when ownership is resolved
         },
 
         // Handle incoming channel config event (kind:30001)
