@@ -1367,18 +1367,17 @@
 
         // Handle incoming room owner declaration event (kind:30000)
         onIncomingRoomOwnerEvent(ev) {
-          // Accept only if we have no owner yet or the incoming has an earlier created_at
-          if (this.room.ownerDiscovered) {
-            // Only accept if this event is strictly older than the current owner's event
-            // (first-to-claim wins on a tie)
-            if (this.room.ownerPubkey && ev.pubkey !== this.room.ownerPubkey) {
-              // Another pubkey claims ownership — check timestamps
-              // Since we process in arrival order and use replaceable dedup on relay,
-              // the relay has already dedup'd. Only one will reach us.
-              return;
-            }
+          // If we had a pending claim and this is our own echo, confirm it
+          if (ev.pubkey === this.user.pk && !this.room.ownerDiscovered) {
+            this.room.ownerPubkey = this.user.pk;
+            this.room.ownerDiscovered = true;
+            this.saveRoomOwner(this.room.slug, this.user.pk);
+            console.log('Ownership confirmed via relay echo');
             return;
           }
+
+          // Accept other owners only if we haven'\''t discovered one yet
+          if (this.room.ownerDiscovered) return;
 
           this.room.ownerPubkey = ev.pubkey;
           this.room.ownerDiscovered = true;
@@ -1430,12 +1429,7 @@
             if (r.ws && r.ws.readyState === WebSocket.OPEN) r.ws.send(msgFrame);
           });
 
-          // Also set ourselves as owner locally (will be confirmed when echo comes back)
-          this.room.ownerPubkey = this.user.pk;
-          this.room.ownerDiscovered = true;
-          this.saveRoomOwner(this.room.slug, this.user.pk);
-
-          // Publish initial channel config
+          // Publish initial channel config (ownership is tentative until relay confirms)
           await this.publishChannelConfig();
         },
 
@@ -2182,6 +2176,7 @@
 
         onIncomingPresence(ev, payload) {
           if (ev.pubkey === this.user.pk) return;
+          console.log('Received presence from', ev.pubkey.substring(0, 8), 'name:', payload.name);
           this.peers[ev.pubkey] = {
             pubkey: ev.pubkey,
             name: payload.name || ('Peer_' + ev.pubkey.substring(0, 8)),
