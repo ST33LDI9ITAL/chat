@@ -39,8 +39,9 @@ jobs:
           sed -i "s|%%EXPRESS_TURN_PASS%%|${EXPRESS_PASS}|g" index.html
 
           GIFBOX_KEY="${{ secrets.GIFBOX_API_KEY }}"
-          if [ -z "$GIFBOX_KEY" ]; then GIFBOX_KEY=""; fi
-          sed -i "s|%%GIFBOX_API_KEY%%|${GIFBOX_KEY}|g" index.html
+          if [ -n "$GIFBOX_KEY" ]; then
+            sed -i "s|_gifboxKey: '"'"'|_gifboxKey: '${GIFBOX_KEY}'|g" index.html
+          fi
 
       - name: Setup Pages
         uses: actions/configure-pages@v5

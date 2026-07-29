@@ -640,9 +640,10 @@
           </button>
           <input type="file" id="fileTransferInput" class="hidden" @change="onFilePicked($event)" />
 
-          <!-- GIF search — opens Gifbox in a new tab to find and copy GIF URLs -->
-          <a href="https://gifbox.me" target="_blank" rel="noopener noreferrer"
-             class="text-gray-400 hover:text-purple-400 transition text-xs font-bold" title="Search GIFs (opens Gifbox)">GIF</a>
+          <!-- GIF search button -->
+          <button @click="toggleGifPicker()" class="text-gray-400 hover:text-purple-400 transition" title="Search GIFs">
+            <span class="text-xs font-bold">GIF</span>
+          </button>
 
           <!-- Input Textarea (supports paste for images) -->
           <input type="text" x-model="newMessageText"
@@ -670,7 +671,28 @@
             </div>
           </div>
 
-
+          <!-- GIF Picker -->
+          <div class="relative">
+            <div x-show="ui.showGifPicker" @click.outside="ui.showGifPicker = false"
+                 class="absolute right-0 bottom-10 z-50 w-80 h-80 bg-[#2b2d31] border border-gray-700 rounded-lg shadow-2xl flex flex-col overflow-hidden">
+              <div class="p-2 border-b border-gray-700 flex">
+                <input type="text" x-model="ui.gifQuery" @input="searchGifs()" @keydown.enter.prevent="searchGifs()"
+                       placeholder="Search GIFs..."
+                       class="flex-1 bg-[#1e1f22] text-sm text-gray-100 p-2 rounded border border-gray-700 focus:outline-none focus:ring-1 focus:ring-app-accent" />
+              </div>
+              <div x-show="ui.gifLoading" class="text-center text-gray-500 text-xs py-8">Searching...</div>
+              <div class="flex-1 overflow-y-auto p-2 grid grid-cols-2 gap-2">
+                <template x-for="gif in ui.gifResults" :key="gif.id">
+                  <img :src="gif.url" @click="insertGif(gif.url)"
+                       class="w-full rounded cursor-pointer hover:opacity-80 transition object-cover"
+                       style="aspect-ratio: 1" loading="lazy" />
+                </template>
+                <template x-if="!ui.gifLoading && ui.gifQuery && ui.gifResults.length === 0">
+                  <div class="col-span-2 text-center text-gray-500 text-xs py-8">No GIFs found</div>
+                </template>
+              </div>
+            </div>
+          </div>
 
           <!-- Send Button -->
           <button @click="sendMessage()" class="bg-app-accent hover:bg-app-accentHover text-white p-1.5 rounded-md transition shadow">
@@ -1106,6 +1128,10 @@
           showRoomModal: false,
           showProfileModal: false,
           showEmojiPicker: false,
+          showGifPicker: false,
+          gifQuery: '',
+          gifResults: [],
+          gifLoading: false,
 
           showMediaModal: false,
           mediaModalUrl: '',
@@ -1174,6 +1200,9 @@
             credential: "guest"
           }
         ],
+
+        // Gifbox API key — set this or leave empty to open gifbox.me in a new tab
+        _gifboxKey: '',
 
         // File transfer state
         _fileTransfers: {}, // transferId -> { chunks: [], received: 0, total: 0, info: {} }
@@ -2822,6 +2851,49 @@
 
         pickFileToSend() {
           document.getElementById('fileTransferInput').click();
+        },
+
+        toggleGifPicker() {
+          this.ui.showGifPicker = !this.ui.showGifPicker;
+          if (this.ui.showGifPicker) {
+            this.ui.gifQuery = '';
+            this.ui.gifResults = [];
+          }
+        },
+
+        async searchGifs() {
+          const query = this.ui.gifQuery.trim();
+          if (!query) { this.ui.gifResults = []; return; }
+          this.ui.gifLoading = true;
+          try {
+            const key = this._gifboxKey;
+            if (!key) {
+              window.open('https://gifbox.me', '_blank');
+              this.ui.showGifPicker = false;
+              this.ui.gifLoading = false;
+              return;
+            }
+            const res = await fetch(
+              'https://compat.gifbox.me/v2/search?q=' + encodeURIComponent(query) + '&media_filter=webm,tinywebm&limit=20&key=' + key
+            );
+            const data = await res.json();
+            this.ui.gifResults = (data.results || []).map(function(r) {
+              return {
+                id: r.id,
+                url: (r.media_formats && r.media_formats.webm && r.media_formats.webm.url) ||
+                     (r.media_formats && r.media_formats.tinywebm && r.media_formats.tinywebm.url) || ''
+              };
+            }).filter(function(r) { return r.url; });
+          } catch (e) {
+            console.error('GIF search failed:', e);
+          }
+          this.ui.gifLoading = false;
+        },
+
+        insertGif(url) {
+          this.newMessageText += ' ' + url + ' ';
+          this.ui.showGifPicker = false;
+          setTimeout(() => this.sendMessage(), 100);
         },
 
         async onFilePicked(event) {
