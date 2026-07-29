@@ -1305,7 +1305,6 @@
             return;
           }
           this.user.pk = window.NostrTools.getPublicKey(this.hexToBytes(skHex));
-          this.user.pubkey = this.user.pk;
 
           this.user.pubkeyTruncated = this.user.pk.substring(0, 8);
           this.user.name = 'Peer_' + this.user.pubkeyTruncated;
@@ -1380,7 +1379,13 @@
           this.addRecentRoom(newSlug, newPass);
 
           // Reset room ownership state for the new room
-          this.room.ownerPubkey = this.loadRoomOwner(newSlug);
+          const cachedOwnerEntry = this.loadRoomOwner(newSlug);
+          if (typeof cachedOwnerEntry === 'string') {
+            this.room.ownerPubkey = cachedOwnerEntry;
+          } else if (cachedOwnerEntry) {
+            this.room.ownerPubkey = cachedOwnerEntry.pubkey;
+            this._ownerResolvedAt = cachedOwnerEntry.ts;
+          }
           this.room.ownerDiscovered = !!this.room.ownerPubkey;
           if (this.room.ownerClaimTimer) {
             clearTimeout(this.room.ownerClaimTimer);
@@ -1638,7 +1643,7 @@
               // Incoming claim is better — switch to it
               this.room.ownerPubkey = pubkey;
               this._ownerResolvedAt = ts;
-              this.saveRoomOwner(this.room.slug, pubkey);
+              this.saveRoomOwner(this.room.slug, pubkey, ts);
               console.log('Owner updated to better claim:', pubkey.substring(0, 8), 'at', ts);
             }
             return;
@@ -1649,7 +1654,7 @@
             this.room.ownerPubkey = pubkey;
             this.room.ownerDiscovered = true;
             this._ownerResolvedAt = ts;
-            this.saveRoomOwner(this.room.slug, pubkey);
+            this.saveRoomOwner(this.room.slug, pubkey, ts);
             console.log('Owner accepted (first external claim):', pubkey.substring(0, 8), 'at', ts);
             return;
           }
@@ -1689,7 +1694,7 @@
             this.room.ownerPubkey = bestPubkey;
             this.room.ownerDiscovered = true;
             this._ownerResolvedAt = bestTs;
-            this.saveRoomOwner(this.room.slug, bestPubkey);
+            this.saveRoomOwner(this.room.slug, bestPubkey, bestTs);
             // If we'\''re the owner, publish our channel config
             if (bestPubkey === this.user.pk) {
               this.publishChannelConfig();
@@ -1703,9 +1708,15 @@
           if (!this.room.ownerDiscovered) {
             this.room.ownerPubkey = this.user.pk;
             this.room.ownerDiscovered = true;
-            this._ownerResolvedAt = Math.floor(Date.now() / 1000);
-            this.saveRoomOwner(this.room.slug, this.user.pk);
+            const now = Math.floor(Date.now() / 1000);
+            this._ownerResolvedAt = now;
+            this.saveRoomOwner(this.room.slug, this.user.pk, now);
             this.publishChannelConfig();
+            // Apply any pending config
+            if (this._pendingConfig) {
+              this.applyChannelConfig(this._pendingConfig);
+              this._pendingConfig = null;
+            }
             console.log('Owner resolved: no existing claims, became owner');
           }
         },
@@ -1733,8 +1744,9 @@
           if (this.room.slug === this.personalRoomSlug) {
             this.room.ownerPubkey = this.user.pk;
             this.room.ownerDiscovered = true;
-            this._ownerResolvedAt = Math.floor(Date.now() / 1000);
-            this.saveRoomOwner(this.room.slug, this.user.pk);
+            const now = Math.floor(Date.now() / 1000);
+            this._ownerResolvedAt = now;
+            this.saveRoomOwner(this.room.slug, this.user.pk, now);
             this.publishChannelConfig();
           } else {
             // For non-personal rooms, set up a timeout to claim if no owner found
@@ -1742,8 +1754,9 @@
               if (!this.room.ownerDiscovered) {
                 this.room.ownerPubkey = this.user.pk;
                 this.room.ownerDiscovered = true;
-                this._ownerResolvedAt = Math.floor(Date.now() / 1000);
-                this.saveRoomOwner(this.room.slug, this.user.pk);
+                const now = Math.floor(Date.now() / 1000);
+                this._ownerResolvedAt = now;
+                this.saveRoomOwner(this.room.slug, this.user.pk, now);
               }
             }, 6000);
           }
@@ -1751,7 +1764,10 @@
 
         // Claim ownership of the current room (publish kind:30000)
         async claimRoomOwnership() {
-          if (this.room.ownerDiscovered || !this.user.pk) return;
+          // For first-time claim, require owner undiscovered
+          // For re-publication (relay reconnecting), allow if we'\''re the owner
+          if (!this.room.ownerDiscovered && this.room.ownerPubkey !== this.user.pk) return;
+          if (!this.user.pk) return;
 
           const now = Math.floor(Date.now() / 1000);
 
@@ -1967,6 +1983,11 @@
               this.ui.connecting = false;
               this.subscribeRelay(relay);
 
+              // Re-publish ownership claim to this relay if we'\''re the owner
+              if (this.room.ownerDiscovered && this.room.ownerPubkey === this.user.pk) {
+                this.claimRoomOwnership();
+              }
+
               // Keepalive: nostr subscription keeps the connection alive, no need for PING
             };
 
@@ -1999,6 +2020,10 @@
             this._startOwnerGracePeriod();
           }
           const subId = 'sub_' + relay.url.replace(/[^a-zA-Z0-9]/g, '_') + '_' + this.room.slug;
+
+          // Close any existing subscription for this relay before opening a new one
+          try { relay.ws.send(JSON.stringify(['CLOSE', subId])); } catch (e) {}
+
           const filter = {
             kinds: [1, 20000, 25000, 30001],
             '#t': [this.room.slug],
@@ -2009,6 +2034,7 @@
           // Subscribe to DMs addressed to us (kind 1 with our pubkey in p tag)
           if (this.user.pk) {
             const dmSubId = subId + '_dm';
+            try { relay.ws.send(JSON.stringify(['CLOSE', dmSubId])); } catch (e) {}
             const dmFilter = {
               kinds: [1],
               '#p': [this.user.pk],
@@ -2213,7 +2239,7 @@
           const args = parts.slice(1).map(s => s.replace(/^"(.*)"$/, '$1'));
 
           // Fuzzy match commands: find the closest matching command
-          const commands = ['help', 'me', 'w', 'whisper', 'nick', 'clear', 'join', 'relay', 'dm', 'topic', 'room', 'motd', 'clearmotd', 'poll'];
+          const commands = ['help', 'me', 'w', 'whisper', 'nick', 'clear', 'join', 'relay', 'dm', 'topic', 'room', 'motd', 'clearmotd', 'poll', 'mod'];
           if (!commands.includes(cmd)) {
             const best = commands
               .map(c => ({ cmd: c, score: this._fuzzyScore(cmd, c) }))
@@ -2724,8 +2750,12 @@
           const newPass = this.ui.roomSettingsPass.trim();
           if (newPass !== this.room.pass) {
             this.room.pass = newPass;
-            this.room.key = null; // Force re-derivation on next encrypt
+            this.room.key = null;
             this.updateUrlHash();
+            // Re-derive the key immediately so decryption of incoming messages works
+            this.updateRoomCryptoKey().catch(function(e) {
+              console.error('saveRoomSettings: crypto key update failed:', e);
+            });
             this.showToast(this.room.pass ? 'Room password updated — share new invite link' : 'Room password removed');
           } else {
             this.showToast('Room settings saved');
@@ -3366,7 +3396,8 @@
           this._fileTransfers[transferId] = {
             chunks: [], received: 0,
             total: msg.fileTransfer.totalChunks || 0,
-            info: msg.fileTransfer
+            info: msg.fileTransfer,
+            timeout: null
           };
 
           // Create a file transfer connection (this will make us the offerer? No — the sender already
@@ -3375,8 +3406,8 @@
           // We create our PC first so it'"'s ready.
           const pc = this.createFileConnection(senderPubkey);
 
-          // Timeout: if transfer doesn't start within 30s, abort
-          setTimeout(() => {
+          // Timeout: if transfer hasn't started within 30s, abort
+          this._fileTransfers[transferId].timeout = setTimeout(() => {
             const transfer = this._fileTransfers?.[transferId];
             if (transfer && transfer.received === 0) {
               delete this._fileTransfers[transferId];
@@ -3449,6 +3480,11 @@
                   headerReceived = true;
                   transfer.total = header.totalChunks;
                   transfer.info = header;
+                  // Clear the idle timeout — transfer is starting
+                  if (transfer.timeout) {
+                    clearTimeout(transfer.timeout);
+                    transfer.timeout = null;
+                  }
                   const msg = findMsg();
                   if (msg) msg.fileProgress = 0;
                   return;
@@ -3830,15 +3866,15 @@
         // === ROOM CONFIG PERSISTENCE (localStorage with sessionStorage fallback) ===
 
         // Room owner cache
-        saveRoomOwner(slug, pubkey) {
+        saveRoomOwner(slug, pubkey, ts) {
           try {
             const owners = JSON.parse(localStorage.getItem('chat_room_owners') || '{}');
-            owners[slug] = pubkey;
+            owners[slug] = { pubkey: pubkey, ts: ts || Math.floor(Date.now() / 1000) };
             localStorage.setItem('chat_room_owners', JSON.stringify(owners));
           } catch (e) {
             try {
               const owners = JSON.parse(sessionStorage.getItem('chat_room_owners') || '{}');
-              owners[slug] = pubkey;
+              owners[slug] = { pubkey: pubkey, ts: ts || Math.floor(Date.now() / 1000) };
               sessionStorage.setItem('chat_room_owners', JSON.stringify(owners));
             } catch (e2) {}
           }
@@ -3852,6 +3888,16 @@
             const sess = JSON.parse(sessionStorage.getItem('chat_room_owners') || '{}');
             return sess[slug] || null;
           } catch (e) { return null; }
+        },
+
+        loadRoomOwnerPubkey(slug) {
+          const entry = this.loadRoomOwner(slug);
+          return entry ? (typeof entry === 'string' ? entry : entry.pubkey) : null;
+        },
+
+        loadRoomOwnerTs(slug) {
+          const entry = this.loadRoomOwner(slug);
+          return entry && typeof entry === 'object' ? entry.ts : null;
         },
 
         // Channel config cache (falls back to sessionStorage if localStorage is full)
