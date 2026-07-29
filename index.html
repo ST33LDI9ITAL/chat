@@ -693,11 +693,15 @@
                        class="flex-1 bg-[#1e1f22] text-sm text-gray-100 p-2 rounded border border-gray-700 focus:outline-none focus:ring-1 focus:ring-app-accent" />
               </div>
               <div x-show="ui.gifLoading" class="text-center text-gray-500 text-xs py-8">Searching...</div>
-              <div class="flex-1 overflow-y-auto p-2 grid grid-cols-2 gap-2">
+              <div class="flex-1 overflow-y-auto p-2 grid grid-cols-2 gap-2" x-ref="gifGrid"
+                   @scroll="const el = $el; if (el.scrollTop + el.clientHeight >= el.scrollHeight - 100) loadMoreGifs()">
                 <template x-for="gif in ui.gifResults" :key="gif.id">
                   <img :src="gif.preview || gif.url" @click="insertGif(gif.url)"
                        class="w-full rounded cursor-pointer hover:opacity-80 transition object-cover"
                        style="aspect-ratio: 1" loading="lazy" />
+                </template>
+                <template x-if="_gifLoadingMore">
+                  <div class="col-span-2 text-center text-gray-500 text-xs py-4">Loading more...</div>
                 </template>
                 <template x-if="!ui.gifLoading && !_gifboxKey">
                   <div class="col-span-2 text-center text-gray-500 text-xs py-8">No GIF API key configured</div>
@@ -2916,6 +2920,8 @@
           if (this.ui.showGifPicker) {
             this.ui.gifQuery = '';
             this.ui.gifResults = [];
+            this._gifNextCursor = null;
+            this._gifLoadingMore = false;
             // Load featured GIFs immediately
             this.searchGifs(true);
           }
@@ -2931,12 +2937,16 @@
           this.ui.gifLoading = true;
           try {
             const key = this._gifboxKey;
-            const endpoint = featured
-              ? 'https://compat.gifbox.me/v2/featured?media_filter=webm,tinywebm&limit=20&key=' + key
-              : 'https://compat.gifbox.me/v2/search?q=' + encodeURIComponent(query) + '&media_filter=webm,tinywebm&limit=20&key=' + key;
+            let endpoint;
+            if (featured) {
+              endpoint = 'https://compat.gifbox.me/v2/featured?media_filter=webm,tinywebm&limit=20&key=' + key;
+            } else {
+              endpoint = 'https://compat.gifbox.me/v2/search?q=' + encodeURIComponent(query) + '&media_filter=webm,tinywebm&limit=20&key=' + key;
+              if (this._gifNextCursor) endpoint += '&next=' + this._gifNextCursor;
+            }
             const res = await fetch(endpoint);
             const data = await res.json();
-            this.ui.gifResults = (data.results || []).map(function(r) {
+            const results = (data.results || []).map(function(r) {
               const fm = r.media_formats || {};
               return {
                 id: r.id,
@@ -2944,10 +2954,23 @@
                 url: (fm.webm && fm.webm.url) || (fm.mp4 && fm.mp4.url) || (fm.gif && fm.gif.url) || ''
               };
             }).filter(function(r) { return r.url; });
+            if (featured || !this._gifNextCursor) {
+              this.ui.gifResults = results;
+            } else {
+              // Append for infinite scroll
+              results.forEach(function(r) { this.ui.gifResults.push(r); }, this);
+            }
+            this._gifNextCursor = data.next || null;
           } catch (e) {
             console.error('GIF search failed:', e);
           }
           this.ui.gifLoading = false;
+        },
+
+        loadMoreGifs() {
+          if (this._gifLoadingMore || !this._gifNextCursor) return;
+          this._gifLoadingMore = true;
+          this.searchGifs(false).then(() => { this._gifLoadingMore = false; });
         },
 
         insertGif(url) {
