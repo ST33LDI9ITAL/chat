@@ -2183,14 +2183,49 @@
         },
 
         // Send an action message (/me)
-        // Vote on a poll — tracked locally in the message object
-        votePoll(msg, optionId) {
+        // Apply a vote received from another user to a poll message
+        applyVote(pollId, voterPubkey, optionId, action) {
+          // Find the poll in room messages
+          const findPoll = (msgs) => msgs.find(m => m.id === pollId && m.isPoll);
+          let poll = findPoll(this.messages);
+          if (!poll) {
+            // Check DM messages too (polls can be in DMs)
+            for (const pk of Object.keys(this.dmMessages)) {
+              poll = findPoll(this.dmMessages[pk]);
+              if (poll) break;
+            }
+          }
+          if (!poll) return; // Poll not found (not loaded yet)
+
+          if (action === 'unvote') {
+            delete poll.poll.votes[voterPubkey];
+            const opt = poll.poll.options.find(o => o.id === optionId);
+            if (opt) opt.votes = Math.max(0, opt.votes - 1);
+          } else {
+            // Remove previous vote from this voter if any
+            const prevVote = poll.poll.votes[voterPubkey];
+            if (prevVote !== undefined) {
+              const oldOpt = poll.poll.options.find(o => o.id === prevVote);
+              if (oldOpt) oldOpt.votes = Math.max(0, oldOpt.votes - 1);
+            }
+            // Apply new vote
+            poll.poll.votes[voterPubkey] = optionId;
+            const newOpt = poll.poll.options.find(o => o.id === optionId);
+            if (newOpt) newOpt.votes++;
+          }
+        },
+
+        // Vote on a poll — publishes vote event to relay so other users see it
+        async votePoll(msg, optionId) {
           const currentVote = msg.poll.votes && msg.poll.votes[this.user.pk];
+          let action;
+
           if (currentVote === optionId) {
             // Unvote
             delete msg.poll.votes[this.user.pk];
             const opt = msg.poll.options.find(o => o.id === optionId);
             if (opt) opt.votes = Math.max(0, opt.votes - 1);
+            action = 'unvote';
           } else {
             // Remove previous vote if any
             if (currentVote !== undefined) {
@@ -2202,6 +2237,21 @@
             msg.poll.votes[this.user.pk] = optionId;
             const newOpt = msg.poll.options.find(o => o.id === optionId);
             if (newOpt) newOpt.votes++;
+            action = 'vote';
+          }
+
+          // Publish vote event so other users see it
+          try {
+            const votePayload = {
+              type: 'vote',
+              pollId: msg.id,
+              optionId: optionId,
+              action: action
+            };
+            const encrypted = await this.encryptPayload(votePayload);
+            await this.publishNostrEvent(1, encrypted);
+          } catch (e) {
+            console.error('votePoll: failed to publish vote', e);
           }
         },
 
@@ -2278,6 +2328,12 @@
         },
 
         onIncomingChatMessage(ev, payload) {
+          // Handle vote events — apply to poll, don't render as message
+          if (payload.type === 'vote' && payload.pollId) {
+            this.applyVote(payload.pollId, ev.pubkey, payload.optionId, payload.action || 'vote');
+            return;
+          }
+
           const parsed = this.parseRichContent(payload.text || '');
           const isAction = payload.type === 'action';
           const isPoll = payload.type === 'poll';
