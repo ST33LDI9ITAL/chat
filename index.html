@@ -2687,10 +2687,17 @@
           if (!query) { this.ui.gifResults = []; return; }
           try {
             const res = await fetch(
-              `https://gifbox.me/api/v1/search?q=${encodeURIComponent(query)}&limit=12`
+              `https://gifbox.me/api/search?q=${encodeURIComponent(query)}&limit=12`
             );
             const data = await res.json();
-            this.ui.gifResults = data.results || [];
+            // Gifbox API returns results with ticket.variants — extract MP4 URL for each
+            this.ui.gifResults = (data.results || []).map(r => ({
+              id: r.id,
+              url: (r.ticket?.variants || []).find(v => v.variantType === 'mp4')?.s3Key ||
+                   (r.ticket?.variants || []).find(v => v.variantType === 'gif_high')?.s3Key,
+              // Build full URL
+              media: [{ gif: { url: 'https://gifbox.me/' + ((r.ticket?.variants || []).find(v => v.variantType === 'mp4')?.s3Key || '') } }]
+            })).filter(r => r.url);
           } catch (e) {
             console.error('GIF search failed:', e);
           }
