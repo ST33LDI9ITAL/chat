@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -45,14 +45,17 @@ jobs:
             grep "_gifboxKey:" index.html
           fi
 
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
-
-      - name: Upload Pages Artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: '.'
-
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Commit and Push to gh-pages
+        run: |
+          cp index.html /tmp/index.html
+          git fetch origin gh-pages 2>/dev/null || true
+          git checkout gh-pages 2>/dev/null || git checkout --orphan gh-pages
+          if [ -f /tmp/index.html ]; then
+            cp /tmp/index.html index.html
+          fi
+          touch .nojekyll
+          git config user.name "Deploy Bot"
+          git config user.email "deploy-bot@users.noreply.github.com"
+          git add index.html .nojekyll
+          git commit -m "deploy: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" || echo "No changes to commit"
+          git push origin gh-pages --force
