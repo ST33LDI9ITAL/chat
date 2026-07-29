@@ -1602,10 +1602,28 @@
 
         // Query all connected relays for existing owner declarations
         _queryRoomOwner() {
+          // First, check if we have a cached owner in localStorage
+          const cachedOwner = this.loadRoomOwner(this.room.slug);
+          if (cachedOwner) {
+            this.room.ownerPubkey = cachedOwner;
+            this.room.ownerDiscovered = true;
+            this._ownerResolvedAt = 0;
+            console.log('Owner loaded from cache:', cachedOwner.substring(0, 8));
+            // Cancel the grace period timer since we already know the owner
+            if (this._ownerResolveTimer) {
+              clearTimeout(this._ownerResolveTimer);
+              this._ownerResolveTimer = null;
+            }
+            return;
+          }
+
+          // Query relays for existing owner events
+          // Use kind:30000 with both #t and #d to maximize matching
           const ownerFilter = {
             kinds: [30000],
             '#t': [this.room.slug],
-            limit: 10
+            '#d': [this.room.slug],
+            limit: 20
           };
           const queryId = 'ownerq_' + this.room.slug.substring(0, 8);
           const msg = JSON.stringify(['REQ', queryId, ownerFilter]);
@@ -1614,7 +1632,7 @@
               r.ws.send(msg);
             }
           });
-          // Close the query subscription after 2 seconds (we'll collect results via onIncomingRoomOwnerEvent)
+          // Close the query subscription after 4 seconds
           setTimeout(() => {
             const closeMsg = JSON.stringify(['CLOSE', queryId]);
             this.relays.forEach(r => {
@@ -1622,7 +1640,7 @@
                 r.ws.send(closeMsg);
               }
             });
-          }, 2000);
+          }, 4000);
         },
 
         // Start the grace period for collecting owner claims from relays
