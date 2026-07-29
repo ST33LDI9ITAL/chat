@@ -2993,8 +2993,9 @@
         },
 
         createPeerConnection(targetPubkey) {
-          const pc = new RTCPeerConnection({ 
-            iceServers: this.iceServers
+          const pc = new RTCPeerConnection({
+            iceServers: this.iceServers,
+            iceTransportPolicy: 'relay' // force TURN-only for IP anonymity
           });
           pc._iceCandidatesQueue = [];
           this.voice.peerConnections[targetPubkey] = pc;
