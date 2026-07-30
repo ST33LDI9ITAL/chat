@@ -2067,16 +2067,7 @@
               this.ui.connecting = false;
               this.subscribeRelay(relay);
 
-              // Only publish ownership claim once per session
-              if (this.room.ownerDiscovered && this.room.ownerPubkey === this.user.pk) {
-                if (!this._ownershipPublished) {
-                  this._ownershipPublished = true;
-                  console.log('ws.onopen: publishing ownership claim (first time)');
-                  this.claimRoomOwnership();
-                } else {
-                  console.log('ws.onopen: skipping ownership claim (already published)');
-                }
-              }
+
 
               // Keepalive: nostr subscription keeps the connection alive, no need for PING
             };
