@@ -2717,6 +2717,7 @@
 
           this.messages.push(msgObj);
           this.messages.sort((a, b) => a.timestamp - b.timestamp);
+          console.log('Msg rcvd:', ev.id.substring(0,8), 'ch:', msgObj.channel, 'total:', this.messages.length, 'filtered:', this.filteredMessages.length);
 
           // Apply any pending reactions that arrived before this message
           if (this._pendingReactions[ev.id]) {
