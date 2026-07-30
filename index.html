@@ -2170,9 +2170,11 @@
             if (msg[0] === 'EVENT' && msg[2]) {
               const ev = msg[2];
               // Dedup via subscription ID to avoid cross-relay duplicates
-              // Use a Map keyed by ev.id to track per-relay delivery
               if (!this._seenEvents) this._seenEvents = new Map();
-              if (this._seenEvents.has(ev.id)) return;
+              if (this._seenEvents.has(ev.id)) {
+                console.log('DEDUP SKIP:', ev.id.substring(0,8), 'map size:', this._seenEvents.size);
+                return;
+              }
               this._seenEvents.set(ev.id, true);
               // Prune old entries periodically
               if (this._seenEvents.size > 5000) this._seenEvents.clear();
@@ -2207,7 +2209,10 @@
               }
 
               const decrypted = await this.decryptPayload(ev.content);
-              if (!decrypted) return; // Wrong key or corrupt payload
+              if (!decrypted) {
+                console.log('DECRYPT FAIL for ev:', ev.id.substring(0,8), 'kind:', ev.kind, 'pubkey:', ev.pubkey?.substring(0,8));
+                return; // Wrong key or corrupt payload
+              }
 
               if (ev.kind === 1) {
                 // Text Message
