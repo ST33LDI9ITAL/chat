@@ -2642,18 +2642,11 @@
             if (payload.unvote) {
               voters.delete(ev.pubkey);
               const newCount = Math.max(0, (target.reactions[payload.emoji] || 1) - 1);
-              if (newCount === 0) {
-                delete target.reactions[payload.emoji];
-              } else {
-                target.reactions[payload.emoji] = newCount;
-              }
-              // Force Alpine reactivity by reassigning
-              target.reactions = Object.assign({}, target.reactions);
+              target.reactions = Object.assign({}, target.reactions, { [payload.emoji]: newCount });
+              if (newCount <= 0) delete target.reactions[payload.emoji];
             } else if (!voters.has(ev.pubkey)) {
               voters.add(ev.pubkey);
-              target.reactions[payload.emoji] = (target.reactions[payload.emoji] || 0) + 1;
-              // Force Alpine reactivity by reassigning
-              target.reactions = Object.assign({}, target.reactions);
+              target.reactions = Object.assign({}, target.reactions, { [payload.emoji]: (target.reactions[payload.emoji] || 0) + 1 });
             }
             return;
           }
