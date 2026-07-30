@@ -2810,6 +2810,7 @@
         },
 
         addReaction(msg, emoji) {
+          console.log('addReaction called', emoji, 'msg.id:', msg.id?.substring(0,8));
           // Track who reacted per-emoji to prevent spam-clicking
           if (!msg._reactionVoters) msg._reactionVoters = {};
           if (!msg._reactionVoters[emoji]) msg._reactionVoters[emoji] = new Set();
