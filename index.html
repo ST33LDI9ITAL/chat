@@ -707,15 +707,15 @@
                            @click="insertGif(gif.url)"></video>
                   </div>
                 </template>
-<template x-if="!ui.gifLoading && !_gifboxKey">
+<template x-if="!ui.gifLoading && !_giphyKey">
                   <div class="col-span-2 text-center text-gray-500 text-xs py-8">No GIF API key configured</div>
                 </template>
                 <!-- Empty state when no search yet -->
-                <template x-if="!ui.gifLoading && _gifboxKey && !ui.gifQuery && ui.gifResults.length === 0">
+                <template x-if="!ui.gifLoading && _giphyKey && !ui.gifQuery && ui.gifResults.length === 0">
                   <div class="col-span-2 text-center text-gray-500 text-xs py-8">Search for GIFs...</div>
                 </template>
                 <!-- Empty state when search returned no results -->
-                <template x-if="!ui.gifLoading && _gifboxKey && ui.gifQuery && ui.gifResults.length === 0">
+                <template x-if="!ui.gifLoading && _giphyKey && ui.gifQuery && ui.gifResults.length === 0">
                   <div class="col-span-2 text-center text-gray-500 text-xs py-8">No GIFs found</div>
                 </template>
               </div>
@@ -1233,8 +1233,8 @@
           }
         ],
 
-        // Gifbox API key — set this or leave empty to open gifbox.me in a new tab
-        _gifboxKey: '',
+        // GIPHY API key — set via GIPHY_SDK secret in CI
+        _giphyKey: '',
 
         // File transfer state
         _fileTransfers: {}, // transferId -> { chunks: [], received: 0, total: 0, info: {} }
@@ -2692,7 +2692,7 @@
             }
 
             // Media CDN (Gifbox, etc.) — render as video embed
-            if (cleanUrl.includes('media.gifbox.me')) {
+            if (cleanUrl.match(/media[0-9]*\.giphy\.com/)) {
               embeds.push({ type: 'video', url: cleanUrl });
               return '';
             }
@@ -2924,9 +2924,6 @@
           if (this.ui.showGifPicker) {
             this.ui.gifQuery = '';
             this.ui.gifResults = [];
-            this._gifNextCursor = null;
-            this._gifLoadingMore = false;
-            // Load featured GIFs immediately
             this.searchGifs(true);
           }
         },
@@ -2934,31 +2931,30 @@
         async searchGifs(featured) {
           const query = this.ui.gifQuery.trim();
           if (!query && !featured) { this.ui.gifResults = []; return; }
-          if (!this._gifboxKey) {
+          if (!this._giphyKey) {
             this.ui.gifResults = [];
             return;
           }
           this.ui.gifLoading = true;
           try {
-            const key = this._gifboxKey;
-            let endpoint;
-            if (featured) {
-              endpoint = 'https://compat.gifbox.me/v2/featured?media_filter=webm,tinywebm&limit=60&key=' + key;
-            } else {
-              endpoint = 'https://compat.gifbox.me/v2/search?q=' + encodeURIComponent(query) + '&media_filter=webm,tinywebm&limit=60&key=' + key;
-            }
+            const key = this._giphyKey;
+            const endpoint = featured
+              ? 'https://api.giphy.com/v1/gifs/trending?api_key=' + key + '&limit=50'
+              : 'https://api.giphy.com/v1/gifs/search?api_key=' + key + '&q=' + encodeURIComponent(query) + '&limit=50';
             const res = await fetch(endpoint);
             const data = await res.json();
-            this.ui.gifResults = (data.results || []).map(function(r) {
-              const fm = r.media_formats || {};
+            this.ui.gifResults = (data.data || []).map(function(g) {
+              const imgs = g.images || {};
               return {
-                id: r.id,
-                preview: (fm.preview && fm.preview.url) || '',
-                url: (fm.webm && fm.webm.url) || (fm.mp4 && fm.mp4.url) || (fm.gif && fm.gif.url) || ''
+                id: g.id,
+                preview: (imgs.fixed_width_downsampled && imgs.fixed_width_downsampled.webp) ||
+                         (imgs.fixed_width && imgs.fixed_width.webp) || '',
+                url: (imgs.original && imgs.original.mp4) ||
+                     (imgs.downsized_medium && imgs.downsized_medium.mp4) || ''
               };
             }).filter(function(r) { return r.url; });
           } catch (e) {
-            console.error('GIF search failed:', e);
+            console.error('GIPHY search failed:', e);
           }
           this.ui.gifLoading = false;
         },
