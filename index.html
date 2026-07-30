@@ -1124,7 +1124,7 @@
           { url: 'wss://nostr.mom', ws: null, status: 'disconnected' },
           { url: 'wss://relay.ditto.pub', ws: null, status: 'disconnected' }
         ],
-        processedEventIds: new Set(),
+        _seenEvents: null, // Map<eventId, true> for cross-relay dedup (created lazily)
         
         // Voice State
         voice: {
@@ -1314,8 +1314,8 @@
           // Reset grace period flag for this room (will start when first relay subscribes)
           this._gracePeriodStarted = false;
           console.log('initApp: connecting relays for room:', this.room.slug, 'messages:', this.messages.length);
-          // Clear processed IDs to prevent bfcache from preserving old event IDs
-          this.processedEventIds = new Set();
+          // Reset event dedup map and pending reactions
+          this._seenEvents = new Map();
           this._pendingReactions = {};
           this.connectRelays();
           // Clear connecting state after timeout (relay may be unreachable)
@@ -1471,7 +1471,7 @@
           }
 
           this.messages = [];
-          this.processedEventIds.clear();
+          this._seenEvents = new Map();
           this.peers = {}; // Clear peers from the previous room
           this.user.inVoice = false; // Reset voice state for new room
           // Leave DM view when switching rooms
@@ -2172,8 +2172,13 @@
             const msg = JSON.parse(data);
             if (msg[0] === 'EVENT' && msg[2]) {
               const ev = msg[2];
-              if (this.processedEventIds.has(ev.id)) { console.log('EVENT dedup skip:', ev.id.substring(0,8), 'set size:', this.processedEventIds.size); return; }
-              this.processedEventIds.add(ev.id);
+              // Dedup via subscription ID to avoid cross-relay duplicates
+              // Use a Map keyed by ev.id to track per-relay delivery
+              if (!this._seenEvents) this._seenEvents = new Map();
+              if (this._seenEvents.has(ev.id)) return;
+              this._seenEvents.set(ev.id, true);
+              // Prune old entries periodically
+              if (this._seenEvents.size > 5000) this._seenEvents.clear();
 
               // Verify Nostr signature: reject forged events
               if (window.NostrTools && window.NostrTools.verifyEvent && !window.NostrTools.verifyEvent(ev)) {
