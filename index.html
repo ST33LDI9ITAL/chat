@@ -2843,7 +2843,8 @@
               tags: [['t', this.room.slug]],
               content: encrypted
             };
-            if (!window.NostrTools || !window.NostrTools.finalizeEvent) return;
+            if (!window.NostrTools || !window.NostrTools.finalizeEvent) { console.error('_publishReaction: nostr-tools not loaded'); return; }
+            console.log('_publishReaction: sending reaction to', this.relays.filter(r => r.ws?.readyState === WebSocket.OPEN).length, 'relays');
             const signedEvent = window.NostrTools.finalizeEvent(eventTemplate, this.hexToBytes(this.user.sk));
             const msgFrame = JSON.stringify(['EVENT', signedEvent]);
             this.relays.forEach(r => {
