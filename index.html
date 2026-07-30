@@ -1313,6 +1313,7 @@
 
           // Reset grace period flag for this room (will start when first relay subscribes)
           this._gracePeriodStarted = false;
+          this._ownershipPublished = false;
           console.log('initApp: connecting relays for room:', this.room.slug, 'messages:', this.messages.length);
           // Reset event dedup map and pending reactions
           this._seenEvents = new Map();
@@ -1472,6 +1473,7 @@
 
           this.messages = [];
           this._seenEvents = new Map();
+          this._ownershipPublished = false;
           this.peers = {}; // Clear peers from the previous room
           this.user.inVoice = false; // Reset voice state for new room
           // Leave DM view when switching rooms
@@ -2065,9 +2067,10 @@
               this.ui.connecting = false;
               this.subscribeRelay(relay);
 
-              // Re-publish ownership claim to this relay if we'\''re the owner
-              if (this.room.ownerDiscovered && this.room.ownerPubkey === this.user.pk) {
-                console.log('ws.onopen triggering claimRoomOwnership, ownerPubkey:', this.room.ownerPubkey?.substring(0,8), 'user.pk:', this.user.pk?.substring(0,8));
+              // Only publish ownership claim if we haven't already in this session
+              // (prevents flooding relays with duplicate claims on reconnect)
+              if (this.room.ownerDiscovered && this.room.ownerPubkey === this.user.pk && !this._ownershipPublished) {
+                this._ownershipPublished = true;
                 this.claimRoomOwnership();
               }
 
