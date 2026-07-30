@@ -2111,7 +2111,9 @@
             '#t': [this.room.slug],
             since: Math.floor(Date.now() / 1000) - 86400 * 7
           };
-          relay.ws.send(JSON.stringify(['REQ', subId, filter]));
+          const reqMsg = JSON.stringify(['REQ', subId, filter]);
+          console.log('REQ:', relay.url, reqMsg.substring(0, 120));
+          relay.ws.send(reqMsg);
 
           // Subscribe to DMs addressed to us (kind 1 with our pubkey in p tag)
           if (this.user.pk) {
