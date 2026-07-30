@@ -779,7 +779,7 @@
                   </button>
                 </div>
 
-                <!-- Per-Peer Volume Slider (if we're in voice and peer is in voice) -->
+                <!-- Per-Peer Volume Slider (visible for other peers in voice, not for self) -->
                 <template x-if="voice.connected && peer.inVoice && peer.pubkey !== user.pk">
                   <div class="flex items-center space-x-2 px-1 pt-1 border-t border-gray-700/40">
                     <i data-lucide="volume-2" class="w-3 h-3 text-gray-400"></i>
@@ -1088,7 +1088,8 @@
           pubkey: '', // alias for pk (used in member list sorting/badges)
           name: 'AnonPeer',
           avatar: '',
-          pubkeyTruncated: ''
+          pubkeyTruncated: '',
+          inVoice: false
         },
         room: {
           slug: '',
@@ -1473,6 +1474,7 @@
           this.messages = [];
           this.processedEventIds.clear();
           this.peers = {}; // Clear peers from the previous room
+          this.user.inVoice = false; // Reset voice state for new room
           // Leave DM view when switching rooms
           this.activeDM = null;
           this.activeChannel = 'general';
@@ -3278,6 +3280,7 @@
 
             this.voice.connected = true;
             this.voice.channel = channelId;
+            this.user.inVoice = true;
 
             // Setup local audio level monitoring
             this.setupLocalAudioAnalyser(this.voice.localStream);
@@ -3322,6 +3325,7 @@
           // Broadcast departure BEFORE clearing state so peers see the signal
           this.voice.connected = false;
           this.voice.channel = null;
+          this.user.inVoice = false;
           this.broadcastPresence();
         },
 
