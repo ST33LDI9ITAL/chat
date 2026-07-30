@@ -2946,7 +2946,7 @@
             const key = this._gifboxKey;
             let endpoint;
             if (featured) {
-              endpoint = 'https://compat.gifbox.me/v2/featured?media_filter=webm,tinywebm&limit=20&key=' + key;
+              endpoint = 'https://compat.gifbox.me/v2/featured?media_filter=webm,tinywebm&limit=60&key=' + key;
             } else {
               endpoint = 'https://compat.gifbox.me/v2/search?q=' + encodeURIComponent(query) + '&media_filter=webm,tinywebm&limit=20&key=' + key;
               if (this._gifNextCursor) endpoint += '&next=' + this._gifNextCursor;
@@ -2976,38 +2976,10 @@
 
         loadMoreGifs() {
           if (this._gifLoadingMore || !this._gifNextCursor) return;
-          this._gifLoadingMore = true;
           const query = this.ui.gifQuery.trim();
-          if (!query) {
-            // No search query — load more featured
-            this._loadMoreFeatured().then(() => { this._gifLoadingMore = false; });
-          } else {
-            this.searchGifs(false).then(() => { this._gifLoadingMore = false; });
-          }
-        },
-
-        async _loadMoreFeatured() {
-          if (!this._gifboxKey || !this._gifNextCursor) return;
-          this.ui.gifLoading = true;
-          try {
-            const key = this._gifboxKey;
-            const endpoint = 'https://compat.gifbox.me/v2/featured?media_filter=webm,tinywebm&limit=20&next=' + this._gifNextCursor + '&key=' + key;
-            const res = await fetch(endpoint);
-            const data = await res.json();
-            const results = (data.results || []).map(function(r) {
-              const fm = r.media_formats || {};
-              return {
-                id: r.id,
-                preview: (fm.preview && fm.preview.url) || '',
-                url: (fm.webm && fm.webm.url) || (fm.mp4 && fm.mp4.url) || (fm.gif && fm.gif.url) || ''
-              };
-            }).filter(function(r) { return r.url; });
-            results.forEach(function(r) { this.ui.gifResults.push(r); }, this);
-            this._gifNextCursor = data.next || null;
-          } catch (e) {
-            console.error('Load more featured failed:', e);
-          }
-          this.ui.gifLoading = false;
+          if (!query) return; // Featured endpoint doesn't support pagination
+          this._gifLoadingMore = true;
+          this.searchGifs(false).then(() => { this._gifLoadingMore = false; });
         },
 
         insertGif(url) {
