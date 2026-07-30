@@ -694,7 +694,7 @@
               </div>
               <div x-show="ui.gifLoading" class="text-center text-gray-500 text-xs py-8">Searching...</div>
               <div class="flex-1 overflow-y-auto p-2 grid grid-cols-2 gap-2" x-ref="gifGrid"
-                   @scroll="const el = $el; if (el.scrollTop + el.clientHeight >= el.scrollHeight - 100) loadMoreGifs()">
+">
                 <template x-for="gif in ui.gifResults" :key="gif.id">
                   <div class="relative w-full" style="aspect-ratio: 1"
                        @mouseenter="$el.querySelector('video').src = gif.url; $el.querySelector('video').play()"
@@ -707,10 +707,7 @@
                            @click="insertGif(gif.url)"></video>
                   </div>
                 </template>
-                <template x-if="_gifLoadingMore">
-                  <div class="col-span-2 text-center text-gray-500 text-xs py-4">Loading more...</div>
-                </template>
-                <template x-if="!ui.gifLoading && !_gifboxKey">
+<template x-if="!ui.gifLoading && !_gifboxKey">
                   <div class="col-span-2 text-center text-gray-500 text-xs py-8">No GIF API key configured</div>
                 </template>
                 <!-- Empty state when no search yet -->
@@ -2948,12 +2945,11 @@
             if (featured) {
               endpoint = 'https://compat.gifbox.me/v2/featured?media_filter=webm,tinywebm&limit=60&key=' + key;
             } else {
-              endpoint = 'https://compat.gifbox.me/v2/search?q=' + encodeURIComponent(query) + '&media_filter=webm,tinywebm&limit=20&key=' + key;
-              if (this._gifNextCursor) endpoint += '&next=' + this._gifNextCursor;
+              endpoint = 'https://compat.gifbox.me/v2/search?q=' + encodeURIComponent(query) + '&media_filter=webm,tinywebm&limit=60&key=' + key;
             }
             const res = await fetch(endpoint);
             const data = await res.json();
-            const results = (data.results || []).map(function(r) {
+            this.ui.gifResults = (data.results || []).map(function(r) {
               const fm = r.media_formats || {};
               return {
                 id: r.id,
@@ -2961,25 +2957,10 @@
                 url: (fm.webm && fm.webm.url) || (fm.mp4 && fm.mp4.url) || (fm.gif && fm.gif.url) || ''
               };
             }).filter(function(r) { return r.url; });
-            if (featured || !this._gifNextCursor) {
-              this.ui.gifResults = results;
-            } else {
-              // Append for infinite scroll
-              results.forEach(function(r) { this.ui.gifResults.push(r); }, this);
-            }
-            this._gifNextCursor = data.next || null;
           } catch (e) {
             console.error('GIF search failed:', e);
           }
           this.ui.gifLoading = false;
-        },
-
-        loadMoreGifs() {
-          if (this._gifLoadingMore || !this._gifNextCursor) return;
-          const query = this.ui.gifQuery.trim();
-          if (!query) return; // Featured endpoint doesn't support pagination
-          this._gifLoadingMore = true;
-          this.searchGifs(false).then(() => { this._gifLoadingMore = false; });
         },
 
         insertGif(url) {
