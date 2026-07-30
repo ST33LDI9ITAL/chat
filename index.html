@@ -753,9 +753,9 @@
               <div class="flex flex-col p-1.5 rounded hover:bg-app-hoverBg cursor-pointer space-y-1" @click="openDM(peer.pubkey)">
                 <div class="flex items-center space-x-2.5">
                   <div class="relative shrink-0 flex items-center justify-center">
-                    <!-- Speaking ring indicator (only when we're also in voice) -->
+                    <!-- Speaking ring indicator (lights up when peer is talking in voice) -->
                     <div class="absolute w-9 h-9 rounded-full border-2 transition-colors duration-150"
-                         :class="voice.connected && peer.isSpeaking ? 'border-app-green' : 'border-transparent'"></div>
+                         :class="peer.isSpeaking ? 'border-app-green' : 'border-transparent'"></div>
                     <img :src="peer.avatar" class="w-8 h-8 rounded-full bg-gray-700" />
                     <div class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-app-sidebarBg"
                          :class="peer.inVoice ? 'bg-app-green' : 'bg-app-green'"></div>
