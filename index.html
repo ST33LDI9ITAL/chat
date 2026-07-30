@@ -2172,7 +2172,7 @@
             const msg = JSON.parse(data);
             if (msg[0] === 'EVENT' && msg[2]) {
               const ev = msg[2];
-              if (this.processedEventIds.has(ev.id)) { console.log('EVENT dedup skip:', ev.id.substring(0,8)); return; }
+              if (this.processedEventIds.has(ev.id)) { console.log('EVENT dedup skip:', ev.id.substring(0,8), 'set size:', this.processedEventIds.size); return; }
               this.processedEventIds.add(ev.id);
 
               // Verify Nostr signature: reject forged events
