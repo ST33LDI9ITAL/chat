@@ -193,7 +193,7 @@
               <button @click="switchChannel(ch.id)"
                       class="flex-1 flex items-center px-2 py-1.5 rounded text-sm font-medium transition-colors group min-w-0"
                       :class="activeChannel === ch.id && !activeDM ? 'bg-app-activeBg text-white' : 'text-gray-400 hover:bg-app-hoverBg hover:text-gray-200'">
-                <span class="text-gray-400 text-base mr-2 shrink-0">#</span>
+                <span class="text-gray-400 text-base mr-2 shrink-0" x-text="ch.icon || '#'"></span>
                 <span x-text="ch.name" class="truncate"></span>
                 <span x-show="ch.unread" class="ml-auto w-2 h-2 rounded-full bg-app-accent shrink-0"></span>
               </button>
@@ -889,7 +889,10 @@
           <template x-for="ch in (ui.channelManagerType === 'text' ? textChannels : voiceChannels)" :key="ch.id">
             <div class="flex items-center justify-between px-2 py-1.5 rounded hover:bg-app-hoverBg">
               <div class="flex items-center space-x-2 text-sm">
-                <span class="text-gray-400" x-text="ui.channelManagerType === 'text' ? '#' : '🔊'"></span>
+                <span class="text-gray-300 cursor-pointer hover:text-app-accent transition text-base"
+                      @click="editChannelIcon(ch)" title="Click to change icon">
+                  <span x-text="ch.icon || (ui.channelManagerType === 'text' ? '#' : '🔊')"></span>
+                </span>
                 <span class="text-gray-200" x-text="ch.name"></span>
               </div>
               <button @click="submitRemoveChannel(ch.id)"
@@ -897,6 +900,42 @@
                       title="Remove channel">
                 🗑
               </button>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- Inline icon picker for channel icons -->
+      <div x-show="ui.showChannelIconPicker" class="border border-gray-700 rounded-lg overflow-hidden">
+        <div class="flex items-center justify-between px-3 py-2 bg-[#1e1f22] border-b border-gray-700">
+          <span class="text-xs text-gray-400">Icon for <span class="text-white font-semibold" x-text="ui.channelIconTarget?.name"></span></span>
+          <div class="flex items-center space-x-2">
+            <button @click="ui.iconPickerCategory = 'symbols'" class="text-xs px-2 py-0.5 rounded" :class="ui.iconPickerCategory === 'symbols' ? 'bg-app-accent text-white' : 'text-gray-400 hover:text-white'">Symbols</button>
+            <button @click="ui.iconPickerCategory = 'emoji'" class="text-xs px-2 py-0.5 rounded" :class="ui.iconPickerCategory === 'emoji' ? 'bg-app-accent text-white' : 'text-gray-400 hover:text-white'">Emoji</button>
+            <button @click="ui.showChannelIconPicker = false" class="text-gray-500 hover:text-white text-xs">✕</button>
+          </div>
+        </div>
+        <div class="p-2 max-h-32 overflow-y-auto">
+          <template x-if="ui.iconPickerCategory === 'symbols'">
+            <div class="grid grid-cols-8 gap-1">
+              <template x-for="icon in channelIcons.symbols" :key="icon">
+                <button @click="setChannelIcon(icon)"
+                        class="w-8 h-8 flex items-center justify-center rounded hover:bg-app-accent/30 text-lg transition"
+                        :class="ui.channelIconTarget?.icon === icon ? 'bg-app-accent/40 ring-1 ring-app-accent' : ''">
+                  <span x-text="icon"></span>
+                </button>
+              </template>
+            </div>
+          </template>
+          <template x-if="ui.iconPickerCategory === 'emoji'">
+            <div class="grid grid-cols-8 gap-1">
+              <template x-for="icon in channelIcons.emoji" :key="icon">
+                <button @click="setChannelIcon(icon)"
+                        class="w-8 h-8 flex items-center justify-center rounded hover:bg-app-accent/30 text-lg transition"
+                        :class="ui.channelIconTarget?.icon === icon ? 'bg-app-accent/40 ring-1 ring-app-accent' : ''">
+                  <span x-text="icon"></span>
+                </button>
+              </template>
             </div>
           </template>
         </div>
@@ -1100,13 +1139,13 @@
         },
         personalRoomSlug: '',
         textChannels: [
-          { id: 'general', name: 'general', unread: false },
-          { id: 'lounge', name: 'lounge', unread: false },
-          { id: 'media-share', name: 'media-share', unread: false }
+          { id: 'general', name: 'general', unread: false, icon: '#' },
+          { id: 'lounge', name: 'lounge', unread: false, icon: '#' },
+          { id: 'media-share', name: 'media-share', unread: false, icon: '#' }
         ],
         voiceChannels: [
-          { id: 'General Voice', name: '🔊 General Voice' },
-          { id: 'Gaming Lounge', name: '🔊 Gaming Lounge' }
+          { id: 'General Voice', name: '🔊 General Voice', icon: '🔊' },
+          { id: 'Gaming Lounge', name: '🔊 Gaming Lounge', icon: '🔊' }
         ],
         activeChannel: 'general',
         newMessageText: '',
@@ -1196,6 +1235,9 @@
 
           showChannelManager: false,
           channelManagerType: 'text', // 'text' or 'voice'
+          showChannelIconPicker: false,
+          channelIconTarget: null, // channel object being edited
+          iconPickerCategory: 'symbols', // 'symbols' or 'emoji'
           newChannelName: '',
           avatarSource: 'identicon', // 'dicebear' | 'initials' | 'identicon' | 'custom'
           customAvatarUrl: '',
@@ -1885,8 +1927,8 @@
         async publishChannelConfig() {
           const content = JSON.stringify({
             version: 1,
-            textChannels: this.textChannels.map(c => ({ id: c.id, name: c.name })),
-            voiceChannels: this.voiceChannels.map(c => ({ id: c.id, name: c.name }))
+            textChannels: this.textChannels.map(c => ({ id: c.id, name: c.name, icon: c.icon || '#' })),
+            voiceChannels: this.voiceChannels.map(c => ({ id: c.id, name: c.name, icon: c.icon || '🔊' }))
           });
 
           const eventTemplate = {
@@ -1921,7 +1963,7 @@
             this.showToast('Channel already exists');
             return;
           }
-          this.textChannels.push({ id, name: trimmed, unread: false });
+          this.textChannels.push({ id, name: trimmed, unread: false, icon: '#' });
           await this.publishChannelConfig();
           this.showToast('Channel #' + trimmed + ' added');
         },
@@ -1947,7 +1989,7 @@
             return;
           }
           const id = trimmed.toLowerCase().replace(/\s+/g, '-');
-          this.voiceChannels.push({ id, name: trimmed });
+          this.voiceChannels.push({ id, name: trimmed, icon: '🔊' });
           await this.publishChannelConfig();
           this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
           this.showToast('Voice channel ' + trimmed + ' added');
@@ -1969,6 +2011,26 @@
         },
 
         // Modal bridge methods for channel manager UI
+        channelIcons: {
+          symbols: ['#', '📢', '💬', '📝', '🎮', '🎵', '🎤', '📷', '🎨', '💻', '📁', '🔧', '📌', '🎯', '⚙️', '🔊', '🎧', '📺', '🎬', '📰', '💡', '🔬', '📊', '🗣️', '👥', '🤖', '🌐', '📋', '📎', '🔗', '📩', '🗓️'],
+          emoji: ['😀', '😂', '🤣', '😍', '🥰', '😎', '🤩', '😜', '🤗', '🤔', '👍', '👎', '👏', '🙌', '🎉', '🎊', '❤️', '💀', '☠️', '👻', '🤡', '💯', '🔥', '⭐', '🌈', '⚡', '💧', '🍕', '🍺', '☕', '🏆', '🚀']
+        },
+
+        editChannelIcon(ch) {
+          this.ui.channelIconTarget = ch;
+          this.ui.showChannelIconPicker = true;
+          this.ui.iconPickerCategory = 'symbols';
+        },
+
+        setChannelIcon(icon) {
+          const ch = this.ui.channelIconTarget;
+          if (!ch) return;
+          ch.icon = icon;
+          this.ui.showChannelIconPicker = false;
+          this.ui.channelIconTarget = null;
+          this.publishChannelConfig();
+        },
+
         submitAddChannel() {
           const name = this.ui.newChannelName.trim();
           if (!name) return;
@@ -4011,14 +4073,15 @@
           this.textChannels = config.textChannels.map(c => ({
             id: c.id,
             name: c.name,
+            icon: c.icon || '#',
             unread: this.textChannels ? this.textChannels.find(old => old.id === c.id)?.unread || false : false
           }));
           if (this.textChannels.length === 0) {
-            this.textChannels = [{ id: 'general', name: 'general', unread: false }];
+            this.textChannels = [{ id: 'general', name: 'general', unread: false, icon: '#' }];
           }
-          this.voiceChannels = config.voiceChannels.map(c => ({ id: c.id, name: c.name }));
+          this.voiceChannels = config.voiceChannels.map(c => ({ id: c.id, name: c.name, icon: c.icon || '🔊' }));
           if (this.voiceChannels.length === 0) {
-            this.voiceChannels = [{ id: 'General Voice', name: '🔊 General Voice' }];
+            this.voiceChannels = [{ id: 'General Voice', name: '🔊 General Voice', icon: '🔊' }];
           }
           if (!this.textChannels.find(c => c.id === oldActive)) {
             this.activeChannel = this.textChannels[0].id;
