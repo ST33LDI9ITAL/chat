@@ -3148,6 +3148,13 @@
             isSpeaking: false,
             volume: this.peers[ev.pubkey]?.volume || 100
           };
+          // If we're in the same voice channel, initiate WebRTC connection
+          if (this.voice.connected && payload.inVoice && payload.channel === this.voice.channel && ev.pubkey !== this.user.pk) {
+            // Deterministic initiator: lexicographically smaller pubkey creates offer
+            if (this.user.pk < ev.pubkey && !this.voice.peerConnections[ev.pubkey]) {
+              this.initiateWebRTCConnection(ev.pubkey);
+            }
+          }
         },
 
         pruneInactivePeers() {
