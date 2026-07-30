@@ -929,26 +929,20 @@
         <!-- Room Display Name -->
         <div>
           <label class="block text-xs font-bold uppercase text-gray-400 mb-1">Room Display Name</label>
-          <div class="flex items-center space-x-2">
-            <input type="text" x-model="ui.roomSettingsName" 
-                   class="flex-1 bg-[#1e1f22] text-sm text-gray-100 p-2.5 rounded border border-gray-700 focus:outline-none focus:ring-1 focus:ring-app-accent" />
-            <button @click="saveRoomSettings()" class="bg-app-accent hover:bg-app-accentHover text-white text-xs font-semibold px-3 py-2.5 rounded transition shrink-0">Save</button>
-          </div>
+          <input type="text" x-model="ui.roomSettingsName" 
+                 class="w-full bg-[#1e1f22] text-sm text-gray-100 p-2.5 rounded border border-gray-700 focus:outline-none focus:ring-1 focus:ring-app-accent" />
         </div>
 
         <!-- Room Icon URL -->
         <div>
           <label class="block text-xs font-bold uppercase text-gray-400 mb-1">Room Icon (URL)</label>
-          <div class="flex items-center space-x-2">
-            <input type="text" x-model="ui.roomSettingsIcon" placeholder="https://..."
-                   class="flex-1 bg-[#1e1f22] text-sm text-gray-100 p-2.5 rounded border border-gray-700 focus:outline-none focus:ring-1 focus:ring-app-accent" />
-            <button @click="saveRoomSettings()" class="bg-app-accent hover:bg-app-accentHover text-white text-xs font-semibold px-3 py-2.5 rounded transition shrink-0">Save</button>
-          </div>
+          <input type="text" x-model="ui.roomSettingsIcon" placeholder="https://..."
+                 class="w-full bg-[#1e1f22] text-sm text-gray-100 p-2.5 rounded border border-gray-700 focus:outline-none focus:ring-1 focus:ring-app-accent" />
           <div class="flex items-center space-x-2 mt-1">
             <template x-if="ui.roomSettingsIcon">
               <img :src="ui.roomSettingsIcon" class="w-6 h-6 rounded object-cover" @error="ui.roomSettingsIcon = ''" />
             </template>
-            <span class="text-[10px] text-gray-500">Enter a URL to an image (will appear in the room list sidebar)</span>
+            <span class="text-[10px] text-gray-500">Enter a URL to an image (will appear in the room list)</span>
           </div>
         </div>
 
@@ -956,17 +950,14 @@
         <div>
           <label class="block text-xs font-bold uppercase text-gray-400 mb-1">Room Slug (URL identifier)</label>
           <div class="bg-[#1e1f22] text-sm text-gray-400 p-2.5 rounded border border-gray-700 font-mono select-all" x-text="'#' + room.slug"></div>
-          <p class="text-[10px] text-gray-500 mt-1">The slug is permanent and cannot be changed. Share the invite link for access.</p>
+          <p class="text-[10px] text-gray-500 mt-1">The slug is permanent and cannot be changed.</p>
         </div>
 
         <!-- Room Password -->
         <div>
           <label class="block text-xs font-bold uppercase text-gray-400 mb-1">Room Encryption Password</label>
-          <div class="flex items-center space-x-2">
-            <input type="password" x-model="ui.roomSettingsPass" placeholder="Leave empty for public room"
-                   class="flex-1 bg-[#1e1f22] text-sm text-gray-100 p-2.5 rounded border border-gray-700 focus:outline-none focus:ring-1 focus:ring-app-accent" />
-            <button @click="saveRoomSettings()" class="bg-app-accent hover:bg-app-accentHover text-white text-xs font-semibold px-3 py-2.5 rounded transition shrink-0">Save</button>
-          </div>
+          <input type="password" x-model="ui.roomSettingsPass" placeholder="Leave empty for public room"
+                 class="w-full bg-[#1e1f22] text-sm text-gray-100 p-2.5 rounded border border-gray-700 focus:outline-none focus:ring-1 focus:ring-app-accent" />
           <p class="text-[10px] text-gray-500 mt-1">🔑 Changes take effect after reconnecting. Share the new invite link with members.</p>
         </div>
 
@@ -979,9 +970,10 @@
         </div>
       </div>
 
-      <div class="flex justify-end pt-2">
-        <button @click="ui.showRoomSettings = false" class="px-5 py-2 text-sm bg-app-accent hover:bg-app-accentHover text-white font-semibold rounded-md shadow transition">
-          Close
+      <div class="flex justify-end space-x-2 pt-2">
+        <button @click="ui.showRoomSettings = false" class="px-4 py-2 text-sm bg-gray-700 hover:bg-gray-600 text-white rounded-md transition">Cancel</button>
+        <button @click="saveRoomSettings()" class="px-5 py-2 text-sm bg-app-accent hover:bg-app-accentHover text-white font-semibold rounded-md shadow transition">
+          Save Changes
         </button>
       </div>
     </div>
