@@ -38,7 +38,7 @@ jobs:
           sed -i "s|%%EXPRESS_TURN_USER%%|${EXPRESS_USER}|g" index.html
           sed -i "s|%%EXPRESS_TURN_PASS%%|${EXPRESS_PASS}|g" index.html
 
-          GIPHY_KEY="${{ secrets.GIPHY_SDK }}"
+          GIPHY_KEY="${{ secrets.GIPHY_API }}"
           if [ -n "$GIPHY_KEY" ]; then
             sed -i "s|_giphyKey: ''|_giphyKey: '${GIPHY_KEY}'|g" index.html
             echo "=== GIPHY key injection check ==="
