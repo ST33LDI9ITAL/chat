@@ -682,7 +682,7 @@
             </button>
             <!-- Emoji Picker Popover -->
             <div x-show="ui.showEmojiPicker" @click.outside="ui.showEmojiPicker = false" 
-                 class="absolute right-0 bottom-10 z-50 shadow-2xl rounded-lg overflow-hidden border border-gray-700">
+                 class="absolute right-0 bottom-10 z-[9999] shadow-2xl rounded-lg overflow-hidden border border-gray-700">
               <emoji-picker @emoji-click="onEmojiPickerSelect($event)"></emoji-picker>
             </div>
             <!-- GIF Button -->
