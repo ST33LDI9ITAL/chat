@@ -1313,7 +1313,7 @@
 
           // Reset grace period flag for this room (will start when first relay subscribes)
           this._gracePeriodStarted = false;
-          console.log('Starting relay connections for room:', this.room.slug);
+          console.log('initApp: connecting relays for room:', this.room.slug, 'messages:', this.messages.length);
           this.connectRelays();
           // Clear connecting state after timeout (relay may be unreachable)
           setTimeout(() => { this.ui.connecting = false; }, 10000);
