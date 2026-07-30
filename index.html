@@ -2641,12 +2641,12 @@
             const voters = target._reactionVoters[payload.emoji];
             if (payload.unvote) {
               voters.delete(ev.pubkey);
-              target.reactions[payload.emoji] = (target.reactions[payload.emoji] || 1) - 1;
-              if (target.reactions[payload.emoji] <= 0) delete target.reactions[payload.emoji];
+              const newCount = (target.reactions[payload.emoji] || 1) - 1;
+              this.$set(target.reactions, payload.emoji, newCount);
+              if (newCount <= 0) delete target.reactions[payload.emoji];
             } else if (!voters.has(ev.pubkey)) {
               voters.add(ev.pubkey);
-              if (!target.reactions[payload.emoji]) target.reactions[payload.emoji] = 0;
-              target.reactions[payload.emoji]++;
+              this.$set(target.reactions, payload.emoji, (target.reactions[payload.emoji] || 0) + 1);
             }
             return;
           }
