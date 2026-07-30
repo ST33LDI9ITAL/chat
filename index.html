@@ -1165,6 +1165,7 @@
         // Tracks the source of the current channel config (for debugging/fallback)
         channelConfigSource: 'default', // 'relay' | 'localStorage' | 'default'
         _pendingConfig: null, // pending channel config from unknown owner (race mitigation)
+        _pendingReactions: {}, // msgId -> [{emoji, pubkey, unvote}] queued before target message arrives
         _gracePeriodStarted: false, // prevents starting the grace period multiple times per room
         _ownerResolvedAt: null, // timestamp when ownership was resolved (pubkey + tiebreaker)
         _ownerClaims: null, // temporary: map of pubkey -> {timestamp, ev} for collecting claims during grace period
@@ -2630,7 +2631,9 @@
             const target = this.messages.find(m => m.id === payload.msgId) ||
               Object.values(this.dmMessages).flat().find(m => m.id === payload.msgId);
             if (!target) {
-              console.log('Reaction target not found:', payload.msgId, 'msgCount:', this.messages.length);
+              // Queue reaction for when the target message arrives
+              if (!this._pendingReactions[payload.msgId]) this._pendingReactions[payload.msgId] = [];
+              this._pendingReactions[payload.msgId].push({ emoji: payload.emoji, pubkey: ev.pubkey, unvote: payload.unvote });
               return;
             }
             // Initialize reaction tracking for this message
@@ -2715,6 +2718,25 @@
 
           this.messages.push(msgObj);
           this.messages.sort((a, b) => a.timestamp - b.timestamp);
+
+          // Apply any pending reactions that arrived before this message
+          if (this._pendingReactions[ev.id]) {
+            this._pendingReactions[ev.id].forEach(function(r) {
+              if (!msgObj._reactionVoters) msgObj._reactionVoters = {};
+              if (!msgObj._reactionVoters[r.emoji]) msgObj._reactionVoters[r.emoji] = new Set();
+              const voters = msgObj._reactionVoters[r.emoji];
+              if (r.unvote) {
+                voters.delete(r.pubkey);
+                msgObj.reactions[r.emoji] = (msgObj.reactions[r.emoji] || 1) - 1;
+                if (msgObj.reactions[r.emoji] <= 0) delete msgObj.reactions[r.emoji];
+              } else if (!voters.has(r.pubkey)) {
+                voters.add(r.pubkey);
+                if (!msgObj.reactions[r.emoji]) msgObj.reactions[r.emoji] = 0;
+                msgObj.reactions[r.emoji]++;
+              }
+            });
+            delete this._pendingReactions[ev.id];
+          }
 
           // Debounced icon refresh to avoid DOM rescan on every message
           this.$nextTick(() => {
