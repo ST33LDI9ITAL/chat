@@ -558,9 +558,9 @@
                   <template x-if="msg.reactions && Object.keys(msg.reactions).length > 0">
                     <div class="flex flex-wrap gap-1 mt-1.5">
                       <template x-for="(count, emoji) in msg.reactions" :key="emoji">
-                        <button @click="addReaction(msg, emoji)" class="flex items-center space-x-1 text-xs px-2 py-0.5 rounded bg-[#2b2d31] border border-gray-700/40 text-gray-300 hover:bg-[#35373c]">
-                          <span x-text="emoji"></span>
-                          <span x-text="count" class="font-bold text-[10px]"></span>
+                        <button @click="addReaction(msg, emoji)" class="flex items-center space-x-1 text-sm px-2.5 py-1 rounded bg-[#2b2d31] border border-gray-700/40 text-gray-200 hover:bg-[#35373c]">
+                          <span x-text="emoji" class="text-base"></span>
+                          <span x-text="count" class="font-bold text-[11px]"></span>
                         </button>
                       </template>
                     </div>
@@ -2629,7 +2629,10 @@
             if (ev.pubkey === this.user.pk) return; // skip own echo
             const target = this.messages.find(m => m.id === payload.msgId) ||
               Object.values(this.dmMessages).flat().find(m => m.id === payload.msgId);
-            if (!target) return;
+            if (!target) {
+              console.log('Reaction target not found:', payload.msgId, 'msgCount:', this.messages.length);
+              return;
+            }
             // Initialize reaction tracking for this message
             if (!target._reactionVoters) target._reactionVoters = {};
             if (!target._reactionVoters[payload.emoji]) target._reactionVoters[payload.emoji] = new Set();
