@@ -2624,6 +2624,28 @@
             return;
           }
 
+          // Handle reaction events — apply to the target message
+          if (payload.type === 'reaction' && payload.msgId && payload.emoji) {
+            if (ev.pubkey === this.user.pk) return; // skip own echo
+            const target = this.messages.find(m => m.id === payload.msgId) ||
+              Object.values(this.dmMessages).flat().find(m => m.id === payload.msgId);
+            if (!target) return;
+            // Initialize reaction tracking for this message
+            if (!target._reactionVoters) target._reactionVoters = {};
+            if (!target._reactionVoters[payload.emoji]) target._reactionVoters[payload.emoji] = new Set();
+            const voters = target._reactionVoters[payload.emoji];
+            if (payload.unvote) {
+              voters.delete(ev.pubkey);
+              target.reactions[payload.emoji] = (target.reactions[payload.emoji] || 1) - 1;
+              if (target.reactions[payload.emoji] <= 0) delete target.reactions[payload.emoji];
+            } else if (!voters.has(ev.pubkey)) {
+              voters.add(ev.pubkey);
+              if (!target.reactions[payload.emoji]) target.reactions[payload.emoji] = 0;
+              target.reactions[payload.emoji]++;
+            }
+            return;
+          }
+
           // Handle MOTD and topic updates — apply to local state, don't render as messages
           if (payload.type === 'motd_update' && payload.channel) {
             if (payload.channel === this.activeChannel) {
@@ -2764,20 +2786,47 @@
         },
 
         addReaction(msg, emoji) {
-          // Track who reacted per-emojiphper-user to prevent spam-clicking
+          // Track who reacted per-emoji to prevent spam-clicking
           if (!msg._reactionVoters) msg._reactionVoters = {};
           if (!msg._reactionVoters[emoji]) msg._reactionVoters[emoji] = new Set();
           const voters = msg._reactionVoters[emoji];
-          if (voters.has(this.user.pk)) {
-            // Already voted — unvote
+          const isUnvote = voters.has(this.user.pk);
+          if (isUnvote) {
             voters.delete(this.user.pk);
             msg.reactions[emoji] = (msg.reactions[emoji] || 1) - 1;
             if (msg.reactions[emoji] <= 0) delete msg.reactions[emoji];
-            return;
+          } else {
+            voters.add(this.user.pk);
+            if (!msg.reactions[emoji]) msg.reactions[emoji] = 0;
+            msg.reactions[emoji]++;
           }
-          voters.add(this.user.pk);
-          if (!msg.reactions[emoji]) msg.reactions[emoji] = 0;
-          msg.reactions[emoji]++;
+          // Publish reaction to room so others see it
+          this._publishReaction(msg.id, emoji, isUnvote);
+        },
+
+        async _publishReaction(msgId, emoji, isUnvote) {
+          try {
+            const payload = {
+              type: 'reaction',
+              msgId: msgId,
+              emoji: emoji,
+              unvote: isUnvote
+            };
+            const encrypted = await this.encryptPayload(payload);
+            const eventTemplate = {
+              kind: 1, created_at: Math.floor(Date.now() / 1000),
+              tags: [['t', this.room.slug]],
+              content: encrypted
+            };
+            if (!window.NostrTools || !window.NostrTools.finalizeEvent) return;
+            const signedEvent = window.NostrTools.finalizeEvent(eventTemplate, this.hexToBytes(this.user.sk));
+            const msgFrame = JSON.stringify(['EVENT', signedEvent]);
+            this.relays.forEach(r => {
+              if (r.ws && r.ws.readyState === WebSocket.OPEN) r.ws.send(msgFrame);
+            });
+          } catch (e) {
+            console.error('Failed to publish reaction:', e);
+          }
         },
 
         // Toggle reaction emoji picker for a specific message
