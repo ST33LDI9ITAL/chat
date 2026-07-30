@@ -1315,8 +1315,9 @@
           this._gracePeriodStarted = false;
           this._ownershipPublished = false;
           console.log('initApp: connecting relays for room:', this.room.slug, 'messages:', this.messages.length);
-          // Reset event dedup map and pending reactions
+          // Reset event dedup map and own-events tracking
           this._seenEvents = new Map();
+          window._chatOwnEvents = new Set();
           this._pendingReactions = {};
           this.connectRelays();
           // Clear connecting state after timeout (relay may be unreachable)
@@ -2144,6 +2145,11 @@
             return;
           }
           const signedEvent = window.NostrTools.finalizeEvent(eventTemplate, this.hexToBytes(this.user.sk));
+          // Track published events so onIncomingChatMessage can distinguish
+          // relay echoes from historical messages with the same pubkey
+          if (!window._chatOwnEvents) window._chatOwnEvents = new Set();
+          window._chatOwnEvents.add(signedEvent.id);
+          if (window._chatOwnEvents.size > 1000) window._chatOwnEvents.clear();
 
           const msgFrame = JSON.stringify(['EVENT', signedEvent]);
           this.relays.forEach(r => {
@@ -2624,9 +2630,6 @@
         },
 
         onIncomingChatMessage(ev, payload) {
-          // Skip events we sent ourselves (relay echoes them back)
-          if (ev.pubkey === this.user.pk) return;
-
           // Handle vote events — apply to poll, don't render as message
           if (payload.type === 'vote' && payload.pollId) {
             this.applyVote(payload.pollId, ev.pubkey, payload.optionId, payload.action || 'vote');
@@ -2635,8 +2638,8 @@
 
           // Handle reaction events — apply to the target message
           if (payload.type === 'reaction' && payload.msgId && payload.emoji) {
-            if (ev.pubkey === this.user.pk) return; // skip own echo
-            console.log('Reaction from', ev.pubkey.substring(0,8), 'for msg', payload.msgId.substring(0,8), 'emoji:', payload.emoji, 'unvote:', payload.unvote);
+            // Skip if we sent this reaction (relay echo of our own reaction)
+            if (window._chatOwnEvents && window._chatOwnEvents.has(ev.id)) return;
             const target = this.messages.find(m => m.id === payload.msgId) ||
               Object.values(this.dmMessages).flat().find(m => m.id === payload.msgId);
             if (!target) {
@@ -2645,7 +2648,6 @@
               this._pendingReactions[payload.msgId].push({ emoji: payload.emoji, pubkey: ev.pubkey, unvote: payload.unvote });
               return;
             }
-            // Initialize reaction tracking for this message
             if (!target._reactionVoters) target._reactionVoters = {};
             if (!target._reactionVoters[payload.emoji]) target._reactionVoters[payload.emoji] = new Set();
             const voters = target._reactionVoters[payload.emoji];
@@ -2658,6 +2660,8 @@
               voters.add(ev.pubkey);
               target.reactions = Object.assign({}, target.reactions, { [payload.emoji]: (target.reactions[payload.emoji] || 0) + 1 });
             }
+            // Force Alpine reactivity by reassigning the messages array
+            this.messages = this.messages.slice();
             return;
           }
 
@@ -2725,9 +2729,15 @@
             }
           }
 
+          // Remove any local message with the same pubkey and content (optimistic send)
+          // This ensures the relay echo replaces the local placeholder
+          const localIdx = this.messages.findIndex(m => 
+            m.id.startsWith('local_') && m.pubkey === ev.pubkey && m.content === payload.text
+          );
+          if (localIdx >= 0) this.messages.splice(localIdx, 1);
+
           this.messages.push(msgObj);
           this.messages.sort((a, b) => a.timestamp - b.timestamp);
-          console.log('Msg rcvd:', ev.id.substring(0,8), 'pubkey:', ev.pubkey.substring(0,8), 'ch:', msgObj.channel, 'total:', this.messages.length);
 
           // Apply any pending reactions that arrived before this message
           if (this._pendingReactions[ev.id]) {
@@ -2836,6 +2846,8 @@
             if (!msg.reactions[emoji]) msg.reactions[emoji] = 0;
             msg.reactions[emoji]++;
           }
+          // Force Alpine reactivity
+          this.messages = this.messages.slice();
           // Publish reaction to room so others see it
           this._publishReaction(msg.id, emoji, isUnvote);
         },
@@ -2849,18 +2861,7 @@
               unvote: isUnvote
             };
             const encrypted = await this.encryptPayload(payload);
-            const eventTemplate = {
-              kind: 1, created_at: Math.floor(Date.now() / 1000),
-              tags: [['t', this.room.slug]],
-              content: encrypted
-            };
-            if (!window.NostrTools || !window.NostrTools.finalizeEvent) { console.error('_publishReaction: nostr-tools not loaded'); return; }
-            console.log('_publishReaction: sending reaction to', this.relays.filter(r => r.ws?.readyState === WebSocket.OPEN).length, 'relays');
-            const signedEvent = window.NostrTools.finalizeEvent(eventTemplate, this.hexToBytes(this.user.sk));
-            const msgFrame = JSON.stringify(['EVENT', signedEvent]);
-            this.relays.forEach(r => {
-              if (r.ws && r.ws.readyState === WebSocket.OPEN) r.ws.send(msgFrame);
-            });
+            await this.publishNostrEvent(1, encrypted);
           } catch (e) {
             console.error('Failed to publish reaction:', e);
           }
