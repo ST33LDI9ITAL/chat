@@ -701,14 +701,13 @@
               <div class="flex-1 overflow-y-auto p-2 grid grid-cols-2 gap-2">
                 <template x-for="gif in ui.gifResults" :key="gif.id">
                   <div class="relative w-full" style="aspect-ratio: 1"
-                       @mouseenter="$el.querySelector('video').src = gif.url; $el.querySelector('video').play()"
-                       @mouseleave="$el.querySelector('video').src = ''; $el.querySelector('video').pause()">
+                       @mouseenter="$el.querySelector('img.animated').src = gif.url"
+                       @mouseleave="$el.querySelector('img.animated').src = gif.preview || ''">
                     <img :src="gif.preview || gif.url" @click="insertGif(gif.url)"
                          class="w-full h-full rounded cursor-pointer hover:opacity-80 transition object-cover absolute inset-0"
                          loading="lazy" />
-                    <video autoplay loop muted playsinline
-                           class="w-full h-full rounded cursor-pointer hover:opacity-80 transition object-cover absolute inset-0"
-                           @click="insertGif(gif.url)"></video>
+                    <img class="animated w-full h-full rounded cursor-pointer hover:opacity-80 transition object-cover absolute inset-0"
+                         @click="insertGif(gif.url)" loading="lazy" />
                   </div>
                 </template>
 <template x-if="!ui.gifLoading && !_giphyKey">
@@ -2714,7 +2713,7 @@
 
             // Media CDN (Gifbox, etc.) — render as video embed
             if (cleanUrl.match(/media[0-9]*\.giphy\.com/)) {
-              embeds.push({ type: 'video', url: cleanUrl });
+              embeds.push({ type: 'image', url: cleanUrl });
               return '';
             }
 
@@ -2980,8 +2979,8 @@
                 id: g.id,
                 preview: (imgs.fixed_width_downsampled && imgs.fixed_width_downsampled.webp) ||
                          (imgs.fixed_width && imgs.fixed_width.webp) || '',
-                url: (imgs.original && imgs.original.mp4) ||
-                     (imgs.downsized_medium && imgs.downsized_medium.mp4) || ''
+                url: (imgs.original && imgs.original.url) ||
+                     (imgs.downsized && imgs.downsized.url) || ''
               };
             }).filter(function(r) { return r.url; });
           } catch (e) {
