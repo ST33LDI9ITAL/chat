@@ -112,7 +112,12 @@
             <button @click="switchRoom(r.slug, r.pass || '')" 
                     class="w-12 h-12 rounded-2xl transition-all duration-200 flex items-center justify-center font-bold text-sm"
                     :class="room.slug === r.slug ? 'bg-app-accent text-white rounded-2xl' : 'bg-app-sidebarBg text-gray-400 hover:bg-app-hoverBg hover:text-white hover:rounded-2xl'">
-              <span x-text="r.displayName ? r.displayName.substring(0,2).toUpperCase() : r.slug.substring(0, 3).toUpperCase()"></span>
+              <template x-if="r.icon">
+                <img :src="r.icon" class="w-8 h-8 rounded-lg object-cover" />
+              </template>
+              <template x-if="!r.icon">
+                <span x-text="r.displayName ? r.displayName.substring(0,2).toUpperCase() : r.slug.substring(0, 3).toUpperCase()"></span>
+              </template>
             </button>
             <span class="absolute left-16 px-2.5 py-1 bg-black text-white text-xs font-semibold rounded shadow-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none truncate max-w-[200px]">
               <span x-text="r.displayName || '#' + r.slug"></span>
@@ -931,6 +936,22 @@
           </div>
         </div>
 
+        <!-- Room Icon URL -->
+        <div>
+          <label class="block text-xs font-bold uppercase text-gray-400 mb-1">Room Icon (URL)</label>
+          <div class="flex items-center space-x-2">
+            <input type="text" x-model="ui.roomSettingsIcon" placeholder="https://..."
+                   class="flex-1 bg-[#1e1f22] text-sm text-gray-100 p-2.5 rounded border border-gray-700 focus:outline-none focus:ring-1 focus:ring-app-accent" />
+            <button @click="saveRoomSettings()" class="bg-app-accent hover:bg-app-accentHover text-white text-xs font-semibold px-3 py-2.5 rounded transition shrink-0">Save</button>
+          </div>
+          <div class="flex items-center space-x-2 mt-1">
+            <template x-if="ui.roomSettingsIcon">
+              <img :src="ui.roomSettingsIcon" class="w-6 h-6 rounded object-cover" @error="ui.roomSettingsIcon = ''" />
+            </template>
+            <span class="text-[10px] text-gray-500">Enter a URL to an image (will appear in the room list sidebar)</span>
+          </div>
+        </div>
+
         <!-- Room Slug (read-only) -->
         <div>
           <label class="block text-xs font-bold uppercase text-gray-400 mb-1">Room Slug (URL identifier)</label>
@@ -1080,6 +1101,7 @@
           topic: '', // topic for the active channel, set via /topic command
           motd: '', // message of the day (pinned) for the active channel
           displayName: '', // human-readable room name (set by owner, separate from slug)
+          icon: '', // optional room icon/avatar URL for room list
           ownerPubkey: null, // pubkey of the room owner (discovered or claimed)
           ownerDiscovered: false, // true once owner is resolved
           ownerClaimTimer: null, // setTimeout handle for delayed ownership claim
@@ -1179,6 +1201,7 @@
           showRoomSettings: false,
           roomSettingsName: '',
           roomSettingsPass: '',
+          roomSettingsIcon: '',
 
           showChannelManager: false,
           channelManagerType: 'text', // 'text' or 'voice'
@@ -1428,6 +1451,9 @@
           this.room.motd = '';
           this.room.moderators = this.loadRoomModerators(newSlug);
           this.room.displayName = this.loadRoomDisplayName(newSlug);
+          // Load room icon from subscribed rooms
+          const sub = this.subscribedRooms.find(r => r.slug === newSlug);
+          this.room.icon = sub ? (sub.icon || '') : '';
           const cachedConfig = this.loadRoomConfig(newSlug);
           if (cachedConfig) {
             this.applyChannelConfig(cachedConfig);
@@ -2788,6 +2814,7 @@
         openRoomSettings() {
           this.ui.roomSettingsName = this.room.displayName || '';
           this.ui.roomSettingsPass = this.room.pass || '';
+          this.ui.roomSettingsIcon = this.room.icon || '';
           this.ui.showRoomSettings = true;
         },
 
@@ -2797,6 +2824,14 @@
           if (this.ui.roomSettingsName && this.ui.roomSettingsName.trim()) {
             this.room.displayName = this.ui.roomSettingsName.trim();
             this.saveRoomDisplayName(this.room.slug, this.room.displayName);
+          }
+          // Save room icon
+          const newIcon = this.ui.roomSettingsIcon.trim();
+          if (newIcon !== this.room.icon) {
+            this.room.icon = newIcon;
+            // Update in subscribed rooms list
+            const room = this.subscribedRooms.find(r => r.slug === this.room.slug);
+            if (room) { room.icon = newIcon; this.saveSubscribedRooms(); }
           }
           // Save password
           const newPass = this.ui.roomSettingsPass.trim();
@@ -2833,12 +2868,13 @@
           this.saveSubscribedRooms();
         },
 
-        subscribeRoom(slug, pass) {
+        subscribeRoom(slug, pass, icon) {
           this.subscribedRooms = this.subscribedRooms.filter(r => r.slug !== slug);
           this.subscribedRooms.unshift({
             slug: slug,
             pass: pass || '',
-            displayName: this.room.displayName || ''
+            displayName: this.room.displayName || '',
+            icon: icon || this.room.icon || ''
           });
           if (this.subscribedRooms.length > 20) this.subscribedRooms = this.subscribedRooms.slice(0, 20);
           this.saveSubscribedRooms();
@@ -2847,7 +2883,7 @@
         // Persist subscribed rooms to localStorage
         saveSubscribedRooms() {
           try {
-            const data = this.subscribedRooms.map(r => ({ slug: r.slug, pass: r.pass || '', displayName: r.displayName || '' }));
+            const data = this.subscribedRooms.map(r => ({ slug: r.slug, pass: r.pass || '', displayName: r.displayName || '', icon: r.icon || '' }));
             localStorage.setItem('chat_subscribed_rooms', JSON.stringify(data));
           } catch (e) {}
         },
