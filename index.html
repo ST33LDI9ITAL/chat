@@ -2626,6 +2626,7 @@
           // Handle reaction events — apply to the target message
           if (payload.type === 'reaction' && payload.msgId && payload.emoji) {
             if (ev.pubkey === this.user.pk) return; // skip own echo
+            console.log('Reaction from', ev.pubkey.substring(0,8), 'for msg', payload.msgId.substring(0,8), 'emoji:', payload.emoji, 'unvote:', payload.unvote);
             const target = this.messages.find(m => m.id === payload.msgId) ||
               Object.values(this.dmMessages).flat().find(m => m.id === payload.msgId);
             if (!target) {
