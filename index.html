@@ -2103,9 +2103,6 @@
           }
           const subId = 'sub_' + relay.url.replace(/[^a-zA-Z0-9]/g, '_') + '_' + this.room.slug;
 
-          // Close any existing subscription for this relay before opening a new one
-          try { relay.ws.send(JSON.stringify(['CLOSE', subId])); } catch (e) {}
-
           const filter = {
             kinds: [1, 20000, 25000, 30001],
             '#t': [this.room.slug],
@@ -2118,7 +2115,6 @@
           // Subscribe to DMs addressed to us (kind 1 with our pubkey in p tag)
           if (this.user.pk) {
             const dmSubId = subId + '_dm';
-            try { relay.ws.send(JSON.stringify(['CLOSE', dmSubId])); } catch (e) {}
             const dmFilter = {
               kinds: [1],
               '#p': [this.user.pk],
