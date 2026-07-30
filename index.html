@@ -1314,6 +1314,9 @@
           // Reset grace period flag for this room (will start when first relay subscribes)
           this._gracePeriodStarted = false;
           console.log('initApp: connecting relays for room:', this.room.slug, 'messages:', this.messages.length);
+          // Clear processed IDs to prevent bfcache from preserving old event IDs
+          this.processedEventIds = new Set();
+          this._pendingReactions = {};
           this.connectRelays();
           // Clear connecting state after timeout (relay may be unreachable)
           setTimeout(() => { this.ui.connecting = false; }, 10000);
