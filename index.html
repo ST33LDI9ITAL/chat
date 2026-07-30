@@ -3251,7 +3251,12 @@
         },
 
         getPeersInVoiceChannel(channelId) {
-          return Object.values(this.peers).filter(p => p.inVoice && p.channel === channelId);
+          const peers = Object.values(this.peers).filter(p => p.inVoice && p.channel === channelId);
+          // Include self if we're in this voice channel
+          if (this.voice.connected && this.voice.channel === channelId) {
+            peers.unshift(this.user);
+          }
+          return peers;
         },
 
         getVoicePeerCount(channelId) {
