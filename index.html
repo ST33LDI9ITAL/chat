@@ -2067,6 +2067,7 @@
 
               // Re-publish ownership claim to this relay if we'\''re the owner
               if (this.room.ownerDiscovered && this.room.ownerPubkey === this.user.pk) {
+                console.log('ws.onopen triggering claimRoomOwnership, ownerPubkey:', this.room.ownerPubkey?.substring(0,8), 'user.pk:', this.user.pk?.substring(0,8));
                 this.claimRoomOwnership();
               }
 
