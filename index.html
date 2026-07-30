@@ -3752,6 +3752,7 @@
               for (let i = 0; i < data.length; i++) sum += data[i];
               const avg = sum / data.length;
               this.voice.isSpeaking = !this.voice.muted && avg > 15;
+              this.user.isSpeaking = this.voice.isSpeaking;
               requestAnimationFrame(check);
             };
             check();
