@@ -693,7 +693,7 @@
                        class="flex-1 bg-[#1e1f22] text-sm text-gray-100 p-2 rounded border border-gray-700 focus:outline-none focus:ring-1 focus:ring-app-accent" />
               </div>
               <div x-show="ui.gifLoading" class="text-center text-gray-500 text-xs py-8">Searching...</div>
-              <div class="flex-1 overflow-y-auto p-2 grid grid-cols-2 gap-2" x-ref="gifGrid">
+              <div class="flex-1 overflow-y-auto p-2 grid grid-cols-2 gap-2">
                 <template x-for="gif in ui.gifResults" :key="gif.id">
                   <div class="relative w-full" style="aspect-ratio: 1"
                        @mouseenter="$el.querySelector('video').src = gif.url; $el.querySelector('video').play()"
