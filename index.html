@@ -905,41 +905,7 @@
         </div>
       </div>
 
-      <!-- Inline icon picker for channel icons -->
-      <div x-show="ui.showChannelIconPicker" class="border border-gray-700 rounded-lg overflow-hidden">
-        <div class="flex items-center justify-between px-3 py-2 bg-[#1e1f22] border-b border-gray-700">
-          <span class="text-xs text-gray-400">Icon for <span class="text-white font-semibold" x-text="ui.channelIconTarget?.name"></span></span>
-          <div class="flex items-center space-x-2">
-            <button @click="ui.iconPickerCategory = 'symbols'" class="text-xs px-2 py-0.5 rounded" :class="ui.iconPickerCategory === 'symbols' ? 'bg-app-accent text-white' : 'text-gray-400 hover:text-white'">Symbols</button>
-            <button @click="ui.iconPickerCategory = 'emoji'" class="text-xs px-2 py-0.5 rounded" :class="ui.iconPickerCategory === 'emoji' ? 'bg-app-accent text-white' : 'text-gray-400 hover:text-white'">Emoji</button>
-            <button @click="ui.showChannelIconPicker = false" class="text-gray-500 hover:text-white text-xs">✕</button>
-          </div>
-        </div>
-        <div class="p-2 max-h-32 overflow-y-auto">
-          <template x-if="ui.iconPickerCategory === 'symbols'">
-            <div class="grid grid-cols-8 gap-1">
-              <template x-for="icon in channelIcons.symbols" :key="icon">
-                <button @click="setChannelIcon(icon)"
-                        class="w-8 h-8 flex items-center justify-center rounded hover:bg-app-accent/30 text-lg transition"
-                        :class="ui.channelIconTarget?.icon === icon ? 'bg-app-accent/40 ring-1 ring-app-accent' : ''">
-                  <span x-text="icon"></span>
-                </button>
-              </template>
-            </div>
-          </template>
-          <template x-if="ui.iconPickerCategory === 'emoji'">
-            <div class="grid grid-cols-8 gap-1">
-              <template x-for="icon in channelIcons.emoji" :key="icon">
-                <button @click="setChannelIcon(icon)"
-                        class="w-8 h-8 flex items-center justify-center rounded hover:bg-app-accent/30 text-lg transition"
-                        :class="ui.channelIconTarget?.icon === icon ? 'bg-app-accent/40 ring-1 ring-app-accent' : ''">
-                  <span x-text="icon"></span>
-                </button>
-              </template>
-            </div>
-          </template>
-        </div>
-      </div>
+      <!-- Channel icon uses the shared emoji picker (triggered via editChannelIcon) -->
 
       <div class="flex justify-end pt-2">
         <button @click="ui.showChannelManager = false" class="px-5 py-2 text-sm bg-app-accent hover:bg-app-accentHover text-white font-semibold rounded-md shadow transition">
@@ -1235,9 +1201,7 @@
 
           showChannelManager: false,
           channelManagerType: 'text', // 'text' or 'voice'
-          showChannelIconPicker: false,
-          channelIconTarget: null, // channel object being edited
-          iconPickerCategory: 'symbols', // 'symbols' or 'emoji'
+          channelIconTarget: null, // channel object being edited (for emoji picker routing)
           newChannelName: '',
           avatarSource: 'identicon', // 'dicebear' | 'initials' | 'identicon' | 'custom'
           customAvatarUrl: '',
@@ -2011,22 +1975,15 @@
         },
 
         // Modal bridge methods for channel manager UI
-        channelIcons: {
-          symbols: ['#', '📢', '💬', '📝', '🎮', '🎵', '🎤', '📷', '🎨', '💻', '📁', '🔧', '📌', '🎯', '⚙️', '🔊', '🎧', '📺', '🎬', '📰', '💡', '🔬', '📊', '🗣️', '👥', '🤖', '🌐', '📋', '📎', '🔗', '📩', '🗓️'],
-          emoji: ['😀', '😂', '🤣', '😍', '🥰', '😎', '🤩', '😜', '🤗', '🤔', '👍', '👎', '👏', '🙌', '🎉', '🎊', '❤️', '💀', '☠️', '👻', '🤡', '💯', '🔥', '⭐', '🌈', '⚡', '💧', '🍕', '🍺', '☕', '🏆', '🚀']
-        },
-
         editChannelIcon(ch) {
           this.ui.channelIconTarget = ch;
-          this.ui.showChannelIconPicker = true;
-          this.ui.iconPickerCategory = 'symbols';
+          this.ui.showEmojiPicker = true;
         },
 
         setChannelIcon(icon) {
           const ch = this.ui.channelIconTarget;
           if (!ch) return;
           ch.icon = icon;
-          this.ui.showChannelIconPicker = false;
           this.ui.channelIconTarget = null;
           this.publishChannelConfig();
         },
@@ -2854,6 +2811,13 @@
                 break;
               }
             }
+            this.ui.showEmojiPicker = false;
+            return;
+          }
+
+          // If there's a pending channel icon target, use it
+          if (this.ui.channelIconTarget) {
+            this.setChannelIcon(emoji);
             this.ui.showEmojiPicker = false;
             return;
           }
