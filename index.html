@@ -3396,15 +3396,14 @@
 
           pc.onicecandidate = async (e) => {
             if (e.candidate) {
+              console.log('ICE gather:', e.candidate.type, e.candidate.protocol, e.candidate.port, 'to', targetPubkey.substring(0,8));
               const payload = { type: 'ice', candidate: e.candidate };
               const encrypted = await this.encryptPayload(payload);
               await this.publishNostrEvent(25000, encrypted, targetPubkey);
             }
           };
-
-          // ICE restart on connection failure
-          pc._iceRestarting = false;
           pc.oniceconnectionstatechange = () => {
+            console.log('ICE state ->', pc.iceConnectionState, 'peer', targetPubkey.substring(0,8));
             if (pc.iceConnectionState === 'failed' && !pc._iceRestarting) {
               pc._iceRestarting = true;
               setTimeout(async () => {
