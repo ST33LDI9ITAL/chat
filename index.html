@@ -3442,9 +3442,13 @@
         },
 
         async onIncomingWebRTCSignal(ev, payload) {
+          console.log('WebRTC signal from', ev.pubkey.substring(0,8), 'type:', payload.type, 'hasPtag:', ev.tags?.some?.(t => t[0] === 'p'));
           if (ev.pubkey === this.user.pk) return;
           const targetTag = ev.tags.find(t => t[0] === 'p');
-          if (!targetTag || targetTag[1] !== this.user.pk) return;
+          if (!targetTag || targetTag[1] !== this.user.pk) {
+            console.log('WebRTC signal skipped — pTag mismatch');
+            return;
+          }
 
           const senderPubkey = ev.pubkey;
 
