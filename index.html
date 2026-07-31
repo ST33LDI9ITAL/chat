@@ -1208,13 +1208,30 @@
           reactionTarget: null // msg.id of the message being reacted to, or null
         },
 
-        // TURN / ICE Config: ExpressTURN (Primary), Public Metered & ProcessOne Fallbacks
+        // TURN / ICE Config: Cloudflare (Primary), ExpressTURN, Metered, ProcessOne
         iceServers: [
           { urls: "stun:stun.l.google.com:19302" },
           { urls: "stun:stun1.l.google.com:19302" },
           { urls: "stun:stun.services.mozilla.com" },
-          
-          // 1. Primary Dedicated Relay: ExpressTURN (Secrets Injected via GitHub Actions)
+
+          // 0. Primary Relay: Cloudflare TURN (short-lived creds injected at deploy time)
+          ...((() => {
+            const cfUser = "%%CLOUDFLARE_TURN_USER%%";
+            const cfPass = "%%CLOUDFLARE_TURN_PASS%%";
+            if (cfUser.startsWith('%%') || cfPass.startsWith('%%')) return [];
+            return [{
+              urls: [
+                'stun:stun.cloudflare.com:3478',
+                'turn:turn.cloudflare.com:3478?transport=udp',
+                'turn:turn.cloudflare.com:3478?transport=tcp',
+                'turns:turn.cloudflare.com:5349?transport=tcp'
+              ],
+              username: cfUser,
+              credential: cfPass
+            }];
+          })()), 
+
+          // 1. Secondary Relay: ExpressTURN (Secrets Injected via GitHub Actions)
           // Build all three transports (UDP, TCP, TLS-443) from the injected base URL
           // so cellular/corporate networks that drop UDP can still connect.
           ...((() => {
@@ -3801,6 +3818,7 @@
           const addrLower = addr.toLowerCase();
           const host = addrLower.split(':')[0];
           const configs = [
+            { hosts: ['turn.cloudflare.com', 'cloudflare'], name: 'Cloudflare' },
             { hosts: ['free.expressturn.com', 'relay1.expressturn.com', 'express'], name: 'ExpressTURN' },
             { hosts: ['metered'], name: 'Metered.ca' },
             { hosts: ['process-one', 'turn.process-one'], name: 'ProcessOne' }

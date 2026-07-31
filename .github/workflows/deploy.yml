@@ -38,6 +38,29 @@ jobs:
           sed -i "s|%%EXPRESS_TURN_USER%%|${EXPRESS_USER}|g" index.html
           sed -i "s|%%EXPRESS_TURN_PASS%%|${EXPRESS_PASS}|g" index.html
 
+          # Generate fresh Cloudflare TURN credentials (1-day TTL) and inject them
+          CF_ID="${{ secrets.CF_TURN_ID }}"
+          CF_TOKEN="${{ secrets.CF_TURN_TOKEN }}"
+          if [ -n "$CF_ID" ] && [ -n "$CF_TOKEN" ]; then
+            echo "=== Generating Cloudflare TURN credentials ==="
+            RESP=$(curl -s -X POST "https://rtc.live.cloudflare.com/v1/turn/keys/${CF_ID}/credentials/generate-ice-servers" \
+              -H "Authorization: Bearer ${CF_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -d '{"ttl": 86400}')
+            # Parse username and credential from the iceServers[0] object
+            CF_USER=$(echo "$RESP" | python3 -c "import sys,json; s=json.load(sys.stdin)['iceServers'][0]; print(s.get('username') or '')" 2>/dev/null)
+            CF_PASS=$(echo "$RESP" | python3 -c "import sys,json; s=json.load(sys.stdin)['iceServers'][0]; print(s.get('credential') or '')" 2>/dev/null)
+            if [ -n "$CF_USER" ] && [ -n "$CF_PASS" ]; then
+              sed -i "s|%%CLOUDFLARE_TURN_USER%%|${CF_USER}|g" index.html
+              sed -i "s|%%CLOUDFLARE_TURN_PASS%%|${CF_PASS}|g" index.html
+              echo "Cloudflare TURN credentials injected."
+            else
+              echo "WARN: Cloudflare TURN could not parse credentials. Response: ${RESP:0:150}"
+            fi
+          else
+            echo "Cloudflare TURN secrets not set; skipping."
+          fi
+
           GIPHY_KEY="${{ secrets.GIPHY_API }}"
           if [ -n "$GIPHY_KEY" ]; then
             sed -i "s|_giphyKey: ''|_giphyKey: '${GIPHY_KEY}'|g" index.html
