@@ -3272,9 +3272,8 @@
         },
 
         getVoicePeerCount(channelId) {
-          let count = this.getPeersInVoiceChannel(channelId).length;
-          if (this.voice.connected && this.voice.channel === channelId) count++;
-          return count;
+          // getPeersInVoiceChannel already includes self if we're in this channel
+          return this.getPeersInVoiceChannel(channelId).length;
         },
 
         // 6. WEBRTC P2P VOICE ENGINE WITH ANONYMIZED TURN RELAY
