@@ -12,7 +12,7 @@ Deployable directly to **GitHub Pages** with zero backend infrastructure.
 - **Zero-Trust Client-Side Encryption**: All messages encrypted with **256-bit AES-GCM** using **100,000 PBKDF2 iterations of SHA-256** with room-specific salt.
 - **Ephemeral Identities**: Auto-generated `secp256k1` keypairs per session, stored only in `sessionStorage`.
 - **Nostr Event Signature Verification**: All incoming events verified via Schnorr signatures — forged events rejected.
-- **TURN-Forced WebRTC**: All voice, video, and file transfer traffic goes through TURN relays — IPs hidden from other peers.
+- **Adaptive IP Privacy**: Voice/video/file traffic is relayed through Cloudflare TURN — IPs hidden from remote peers. Same-LAN trusted peers (same public IP + same private subnet) connect directly for lower latency, while remote and untrusted peers are always relay-only (never relaxed), so IP-anonymity from outsiders is preserved.
 
 ### 📡 Messaging
 - **Text Chat**: Room-based channels with per-channel topics and pinned messages (MOTD).
@@ -36,7 +36,8 @@ Deployable directly to **GitHub Pages** with zero backend infrastructure.
 - **Per-Peer Volume**: Individual volume sliders (0-200%) for each speaker.
 - **Mute/Deafen**: Global mic mute and audio deafen controls.
 - **Speaking Detection**: Real-time audio frequency analysis with visual glow rings on avatars in voice channels and membership list.
-- **TURN-Forced**: All media relayed through TURN (Cloudflare) for IP anonymity.
+- **Adaptive Relay**: Same-LAN users connect directly (low latency, works on a home network); remote/untrusted peers are always relay-only via Cloudflare TURN, preserving IP anonymity.
+- **Same-LAN Detection**: Public + private IPs are exchanged via presence; only same-public-IP peers sharing a private subnet are treated as trusted local peers.
 - **Channel Icon Picker**: Custom emoji/icon per channel.
 - **Command Autocomplete**: Type `/` to see all commands with descriptions.
 
@@ -116,6 +117,7 @@ Deployable directly to **GitHub Pages** with zero backend infrastructure.
 - **Ephemeral Messages**: Page reload re-fetches room messages from relays. DM conversations persist in sessionStorage. Room config persists in localStorage.
 - **TURN Credential Expiry**: Cloudflare TURN credentials have a 1-day TTL; each GitHub deploy regenerates them. Load the latest deploy within the TTL window.
 - **TURN Bandwidth**: The free Cloudflare TURN tier (1TB/month) is sufficient for text + voice. Heavy file transfers may consume it faster.
+- **Same-LAN Join Timing**: Because IP discovery is asynchronous, two same-LAN clients that join a voice channel at almost the same moment may experience a brief silence, then the connection upgrades to a direct path ~1–3 seconds later (once presence heartbeats confirm same-LAN). Remote peers remain relay-only.
 - **File Transfer**: Requires both peers to be online simultaneously. Files are transferred P2P over WebRTC data channels and are not stored on any server.
 - **Hardcoded Relays**: Six default Nostr relays are hardcoded. No UI to add/remove relays yet.
 - **Relay Dependency**: App relies on Nostr relays for message delivery. If all relays are unreachable, messaging is unavailable.
