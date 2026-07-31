@@ -47,9 +47,9 @@ jobs:
               -H "Authorization: Bearer ${CF_TOKEN}" \
               -H "Content-Type: application/json" \
               -d '{"ttl": 86400}')
-            # Parse username and credential from the iceServers[0] object
-            CF_USER=$(echo "$RESP" | python3 -c "import sys,json; s=json.load(sys.stdin)['iceServers'][0]; print(s.get('username') or '')" 2>/dev/null)
-            CF_PASS=$(echo "$RESP" | python3 -c "import sys,json; s=json.load(sys.stdin)['iceServers'][0]; print(s.get('credential') or '')" 2>/dev/null)
+            # Find the iceServers entry that has username/credential (TURN, not the STUN-only one)
+            CF_USER=$(echo "$RESP" | python3 -c "import sys,json; data=json.load(sys.stdin)['iceServers']; s=next((x for x in data if x.get('username')), data[0]); print(s.get('username') or '')" 2>/dev/null)
+            CF_PASS=$(echo "$RESP" | python3 -c "import sys,json; data=json.load(sys.stdin)['iceServers']; s=next((x for x in data if x.get('credential')), data[0]); print(s.get('credential') or '')" 2>/dev/null)
             if [ -n "$CF_USER" ] && [ -n "$CF_PASS" ]; then
               sed -i "s|%%CLOUDFLARE_TURN_USER%%|${CF_USER}|g" index.html
               sed -i "s|%%CLOUDFLARE_TURN_PASS%%|${CF_PASS}|g" index.html
