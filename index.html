@@ -1110,6 +1110,7 @@
           { id: 'General Voice', name: '🔊 General Voice', icon: '🔊' },
           { id: 'Gaming Lounge', name: '🔊 Gaming Lounge', icon: '🔊' }
         ],
+        _pendingIceCandidates: {}, // senderPubkey -> [RTCIceCandidate] (arrived before offer)
         activeChannel: 'general',
         newMessageText: '',
         messages: [],
@@ -3338,6 +3339,7 @@
             this.voice.peerConnections[pk].close();
             delete this.voice.peerConnections[pk];
           });
+          this._pendingIceCandidates = {};
 
           // Broadcast departure BEFORE clearing state so peers see the signal
           this.voice.connected = false;
@@ -3442,13 +3444,9 @@
         },
 
         async onIncomingWebRTCSignal(ev, payload) {
-          console.log('WebRTC signal from', ev.pubkey.substring(0,8), 'type:', payload.type, 'hasPtag:', ev.tags?.some?.(t => t[0] === 'p'));
           if (ev.pubkey === this.user.pk) return;
           const targetTag = ev.tags.find(t => t[0] === 'p');
-          if (!targetTag || targetTag[1] !== this.user.pk) {
-            console.log('WebRTC signal skipped — pTag mismatch');
-            return;
-          }
+          if (!targetTag || targetTag[1] !== this.user.pk) return;
 
           const senderPubkey = ev.pubkey;
 
@@ -3469,10 +3467,17 @@
             }
             await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
             
-            // Process queued candidates
+            // Process queued candidates (from this PC or pending ones)
             while (pc._iceCandidatesQueue && pc._iceCandidatesQueue.length > 0) {
               const cand = pc._iceCandidatesQueue.shift();
               await pc.addIceCandidate(cand).catch(() => {});
+            }
+            if (this._pendingIceCandidates && this._pendingIceCandidates[senderPubkey]) {
+              const pending = this._pendingIceCandidates[senderPubkey];
+              delete this._pendingIceCandidates[senderPubkey];
+              while (pending.length) {
+                await pc.addIceCandidate(pending.shift()).catch(() => {});
+              }
             }
 
             const answer = await pc.createAnswer();
@@ -3493,15 +3498,22 @@
             }
 
           } else if (payload.type === 'ice') {
+            if (!payload.candidate) return;
+            const cand = new RTCIceCandidate(payload.candidate);
             const pc = this.voice.peerConnections[senderPubkey];
-            if (pc && payload.candidate) {
-              const cand = new RTCIceCandidate(payload.candidate);
+            if (pc) {
               if (pc.remoteDescription && pc.remoteDescription.type) {
                 await pc.addIceCandidate(cand).catch(() => {});
               } else {
                 if (!pc._iceCandidatesQueue) pc._iceCandidatesQueue = [];
                 pc._iceCandidatesQueue.push(cand);
               }
+            } else {
+              // PC doesn't exist yet (candidate arrived before offer)
+              // Queue it and apply when the offer creates the PC
+              if (!this._pendingIceCandidates) this._pendingIceCandidates = {};
+              if (!this._pendingIceCandidates[senderPubkey]) this._pendingIceCandidates[senderPubkey] = [];
+              this._pendingIceCandidates[senderPubkey].push(cand);
             }
           }
         },
