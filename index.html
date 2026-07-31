@@ -1215,15 +1215,27 @@
           { urls: "stun:stun.services.mozilla.com" },
           
           // 1. Primary Dedicated Relay: ExpressTURN (Secrets Injected via GitHub Actions)
-          // Runtime check: skip placeholder entries that weren't replaced by CI
+          // Build all three transports (UDP, TCP, TLS-443) from the injected base URL
+          // so cellular/corporate networks that drop UDP can still connect.
           ...((() => {
-            const url = "%%EXPRESS_TURN_URL%%";
-            if (url.startsWith('%%')) return [];
-            return [{
-              urls: url,
-              username: "%%EXPRESS_TURN_USER%%".startsWith('%%') ? '' : "%%EXPRESS_TURN_USER%%",
-              credential: "%%EXPRESS_TURN_PASS%%".startsWith('%%') ? '' : "%%EXPRESS_TURN_PASS%%"
-            }];
+            const base = "%%EXPRESS_TURN_URL%%";
+            if (base.startsWith('%%')) return [];
+            const user = "%%EXPRESS_TURN_USER%%";
+            const pass = "%%EXPRESS_TURN_PASS%%";
+            // Parse host (and optional :port) from 'turn:host:port'
+            const m = base.match(/^turn:([^:?]+)(?::(\d+))?$/);
+            const host = m ? m[1] : base.replace(/^turn:[a-zA-Z0-9.-]+:/, '');
+            const tcpPort = m && m[2] ? m[2] : '3478';
+            const tlsPort = m && m[2] ? '5349' : '5349';
+            const creds = {
+              username: user.startsWith('%%') ? '' : user,
+              credential: pass.startsWith('%%') ? '' : pass
+            };
+            return [
+              { urls: 'turn:' + host + ':' + tcpPort + '?transport=udp', ...creds },
+              { urls: 'turn:' + host + ':' + tcpPort + '?transport=tcp', ...creds },
+              { urls: 'turns:' + host + ':' + tlsPort + '?transport=tcp', ...creds }
+            ];
           })()),
 
           // ExpressTURN free tier (sign up at expressturn.com for dedicated credentials)
