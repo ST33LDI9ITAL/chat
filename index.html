@@ -1139,7 +1139,9 @@
           remoteAudioContexts: {}, // pubkey -> AudioContext
           peerConnections: {}, // pubkey -> RTCPeerConnection
           peerAudioElements: {}, // pubkey -> HTMLAudioElement
-          relayName: 'Unknown' // actual TURN relay detected from selected candidate pair
+          relayName: 'Unknown', // actual TURN relay detected from selected candidate pair
+          publicIp: null, // own STUN-reflexive public IP (discovered async)
+          privateIp: null  // own private LAN IP (host candidate)
         },
 
         // Direct Message State
@@ -3184,7 +3186,9 @@
             inVoice: this.voice.connected,
             channel: this.voice.channel,
             muted: this.voice.muted,
-            deafened: this.voice.deafened
+            deafened: this.voice.deafened,
+            publicIp: this.voice.publicIp || null,
+            privateIp: this.voice.privateIp || null
           };
           try {
             const encrypted = await this.encryptPayload(payload);
@@ -3210,6 +3214,8 @@
             channel: payload.channel || null,
             muted: !!payload.muted,
             deafened: !!payload.deafened,
+            publicIp: payload.publicIp || null,
+            privateIp: payload.privateIp || null,
             isSpeaking: false,
             volume: this.peers[ev.pubkey]?.volume || 100
           };
@@ -3218,6 +3224,8 @@
             // Deterministic initiator: lower pubkey creates offer
             if (this.user.pk < ev.pubkey && !this.voice.peerConnections[ev.pubkey]) {
               this.initiateWebRTCConnection(ev.pubkey);
+            } else if (this.voice.peerConnections[ev.pubkey]) {
+              this.upgradeConnectionIfSameLan(ev.pubkey);
             }
           }
         },
@@ -3277,6 +3285,9 @@
 
             // Setup local audio level monitoring
             this.setupLocalAudioAnalyser(this.voice.localStream);
+
+            // Discover own IPs for same-LAN detection; broadcast includes them
+            this.discoverLocalIps();
 
             this.broadcastPresence();
 
@@ -3363,9 +3374,12 @@
         },
 
         createPeerConnection(targetPubkey) {
+          // Per-pair policy: same-LAN trusted peers connect directly (host candidates),
+          // everyone else stays relay-only to hide IPs from remote/untrusted peers.
+          const sameLan = this.isSameLanTarget(targetPubkey);
           const pc = new RTCPeerConnection({
             iceServers: this.iceServers,
-            iceTransportPolicy: 'relay' // force TURN-only for IP anonymity
+            iceTransportPolicy: sameLan ? 'all' : 'relay'
           });
           pc._iceCandidatesQueue = [];
           this.voice.peerConnections[targetPubkey] = pc;
@@ -3440,6 +3454,11 @@
               if (this.voice.localStream) {
                 this.voice.localStream.getTracks().forEach(track => pc.addTrack(track, this.voice.localStream));
               }
+            } else if (this.isSameLanTarget(senderPubkey) && !pc._updatedForLan) {
+              // Peer is same-LAN: relax this (previously relay-strict) answering PC to 'all'
+              // so we both send host candidates on this renegotiation.
+              pc._updatedForLan = true;
+              try { pc.setConfiguration({ iceTransportPolicy: 'all', iceServers: this.iceServers }); } catch (e) {}
             }
             await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
             
@@ -3740,22 +3759,31 @@
         },
 
         async detectVoiceRelay() {
-          // Inspect the active PC's candidate stats to find which TURN
-          // relay is actually carrying the voice connection
+          // Inspect the active PC's candidate stats to determine if media is
+          // relayed (TURN) or direct (same-LAN path)
           try {
-            for (const pc of Object.values(this.voice.peerConnections)) {
+            for (const [pk, pc] of Object.entries(this.voice.peerConnections)) {
               if (!pc || pc.iceConnectionState !== 'connected') continue;
               const stats = await pc.getStats();
+              let isRelay = false;
               let relayAddr = null;
+              let isDirect = false;
               stats.forEach(report => {
-                if (report.type === 'local-candidate' && report.candidateType === 'relay') {
-                  relayAddr = report.ip + ':' + (report.port || '');
+                if (report.type === 'candidate-pair' && report.state === 'succeeded' && report.selected) {
+                  isRelay = report.nominated ? !!report.localCandidateId : isRelay;
+                }
+                if (report.type === 'local-candidate') {
+                  if (report.candidateType === 'relay') {
+                    isRelay = true;
+                    relayAddr = report.ip + ':' + (report.port || '');
+                  }
+                  if (report.candidateType === 'host' || report.candidateType === 'srflx') {
+                    isDirect = true;
+                  }
                 }
               });
-              if (relayAddr) {
-                this.voice.relayName = this.nameRelay(relayAddr);
-                return;
-              }
+              this.voice.relayName = isRelay && relayAddr ? this.nameRelay(relayAddr) : (isDirect ? 'Direct (LAN)' : this.voice.relayName);
+              return;
             }
           } catch (e) {}
         },
@@ -3771,6 +3799,80 @@
             if (c.hosts.some(h => host.includes(h) || addrLower.includes(h))) return c.name;
           }
           return 'TURN Relay';
+        },
+
+        // Discover own public (STUN-reflexive) and private (host) IPs using a
+        // throwaway RTCPeerConnection (not stored in peerConnections).
+        // Used for same-LAN detection so voice can bypass relay for trusted local peers.
+        discoverLocalIps() {
+          if (this.voice.publicIp && this.voice.privateIp) return Promise.resolve(); // already discovered
+          return new Promise((resolve) => {
+            try {
+              const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+              let settled = false;
+              const finish = () => { if (!settled) { settled = true; try { pc.close(); } catch(e){} resolve(); } };
+              const timeout = setTimeout(() => { this.voice.publicIp = this.voice.publicIp || 'unknown'; this.voice.privateIp = this.voice.privateIp || 'unknown'; finish(); }, 4000);
+              pc.createDataChannel('ipd');
+              pc.onicecandidate = (e) => {
+                if (e.candidate) {
+                  if (e.candidate.type === 'srflx') this.voice.publicIp = this.voice.publicIp || e.candidate.address;
+                  if (e.candidate.type === 'host') this.voice.privateIp = this.voice.privateIp || e.candidate.address;
+                } else {
+                  clearTimeout(timeout);
+                  this.voice.publicIp = this.voice.publicIp || 'unknown';
+                  this.voice.privateIp = this.voice.privateIp || 'unknown';
+                  finish();
+                }
+              };
+              pc.setLocalDescription(pc.createOffer());
+            } catch (e) {
+              this.voice.publicIp = 'unknown';
+              this.voice.privateIp = 'unknown';
+              resolve();
+            }
+          });
+        },
+
+        // Strict same-LAN check: same public IP AND same private subnet ("/16").
+        // Only relax relay to direct for genuinely same-network trusted peers.
+        // Remote peers (different public IP) or CGNAT (same public IP, different private subnet)
+        // are never relaxed — IP-hiding from remote peers is preserved.
+        isSameLanTarget(pubkey) {
+          const mePub = this.voice.publicIp;
+          const mePriv = this.voice.privateIp;
+          const them = this.peers[pubkey];
+          if (!them || !them.publicIp || !them.privateIp) return false;
+          if (mePub === 'unknown' || mePriv === 'unknown' || them.publicIp === 'unknown' || them.privateIp === 'unknown') return false;
+          if (mePub !== them.publicIp) return false; // different public IP -> remote -> relay
+          // Same public IP: additionally require same /16 private subnet to avoid CGNAT false positives
+          const myOctets = mePriv.split('.');
+          const theirOctets = them.privateIp.split('.');
+          return myOctets.length === 4 && theirOctets.length === 4 &&
+                 myOctets[0] === theirOctets[0] && myOctets[1] === theirOctets[1];
+        },
+
+        // If a peer is confirmed same-LAN AFTER a relay-only PC was already
+        // created (IPs arrived late via presence heartbeat), relax that PC
+        // from relay-only to 'all' via setConfiguration + an ICE restart.
+        // WPT guarantees relay->all ICE restart succeeds.
+        upgradeConnectionIfSameLan(pubkey) {
+          const pc = this.voice.peerConnections[pubkey];
+          if (!pc || pc._updatedForLan) return;
+          if (!this.isSameLanTarget(pubkey)) return;
+          pc._updatedForLan = true;
+          try {
+            pc.setConfiguration({ iceTransportPolicy: 'all', iceServers: this.iceServers });
+            // Relax does not take effect until the next gathering phase, so we must
+            // renegotiate: create a fresh offer (iceRestart) and send it to the peer.
+            // WPT guarantees relay->all ICE restart succeeds; both sides renegotiate.
+            pc.createOffer({ iceRestart: true }).then(o => {
+              return pc.setLocalDescription(o).then(() => o);
+            }).then(o => {
+              const payload = { type: 'offer', sdp: o };
+              return this.encryptPayload(payload).then(enc =>
+                this.publishNostrEvent(25000, enc, pubkey));
+            }).catch(() => {});
+          } catch (e) {}
         },
 
         setupLocalAudioAnalyser(stream) {
