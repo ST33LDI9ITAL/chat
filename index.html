@@ -3398,7 +3398,7 @@
 
           pc.onicecandidate = async (e) => {
             if (e.candidate) {
-              console.log('ICE gather:', e.candidate.type, e.candidate.protocol, e.candidate.port, 'to', targetPubkey.substring(0,8));
+              console.log('ICE gather:', e.candidate.type, e.candidate.protocol, e.candidate.port, 'relayAddr=', e.candidate.relatedAddress, 'to', targetPubkey.substring(0,8));
               const payload = { type: 'ice', candidate: e.candidate };
               const encrypted = await this.encryptPayload(payload);
               await this.publishNostrEvent(25000, encrypted, targetPubkey);
