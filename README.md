@@ -18,9 +18,9 @@ Deployable directly to **GitHub Pages** with zero backend infrastructure.
 - **Text Chat**: Room-based channels with per-channel topics and pinned messages (MOTD).
 - **Direct Messages**: NIP-04 ECDH-encrypted private conversations.
 - **Rich Media Embeds**: Automatic inline rendering for YouTube, images, GIFs, MP4/WebM videos.
-- **GIF Picker**: Search and insert GIFs via Gifbox API.
+- **GIF Picker**: Search and insert GIFs via GIPHY API (Powered by GIPHY) with featured + preview-on-hover.
 - **Image Paste/Drag**: Paste images from clipboard or drag-and-drop files directly into chat.
-- **Reactions**: Emoji reactions with toggle on/off (one vote per emoji per user).
+- **Reactions**: Emoji reactions with toggle on/off (one vote per emoji per user), synced across all users via Nostr events.
 - **File Transfers**: P2P file sharing over WebRTC data channels (TURN-anonymized) with progress bars. Video files play inline after transfer.
 - **Polls**: Create multiple-choice polls via `/poll "Q?" "A" "B"` with live vote syncing.
 
@@ -29,14 +29,16 @@ Deployable directly to **GitHub Pages** with zero backend infrastructure.
 - **Moderators**: Owner can delegate moderation via `/mod <pubkey>`.
 - **Channel CRUD**: Owners can add/remove text and voice channels.
 - **Unique Room IDs**: 32-character random IDs — unguessable.
-- **Recent Rooms**: Sidebar shows recently joined rooms with quick-switch.
+- **Subscribed Rooms**: Sidebar shows rooms you explicitly joined (no auto-add) with custom room icons.
 
 ### 🎤 Voice & Video
 - **WebRTC Voice Channels**: Join voice channels with P2P audio.
 - **Per-Peer Volume**: Individual volume sliders (0-200%) for each speaker.
 - **Mute/Deafen**: Global mic mute and audio deafen controls.
-- **Speaking Detection**: Real-time audio frequency analysis with visual glow rings.
-- **TURN-Forced**: All media relayed through TURN for IP anonymity.
+- **Speaking Detection**: Real-time audio frequency analysis with visual glow rings on avatars in voice channels and membership list.
+- **TURN-Forced**: All media relayed through TURN (Cloudflare) for IP anonymity.
+- **Channel Icon Picker**: Custom emoji/icon per channel.
+- **Command Autocomplete**: Type `/` to see all commands with descriptions.
 
 ### ⌨️ Commands
 - `/me <action>` — italic action messages
@@ -76,9 +78,9 @@ Deployable directly to **GitHub Pages** with zero backend infrastructure.
 - **Sanitizer**: [DOMPurify](https://github.com/cure53/DOMPurify)
 - **Signaling**: [nostr-tools v2](https://github.com/nbd-wtf/nostr-tools) over 6 public Nostr relays
 - **WebRTC**: Native browser APIs with TURN relay (`iceTransportPolicy: relay`)
-- **TURN Relays**: ExpressTURN (primary, 1TB/mo free tier), Metered.ca (public fallback)
+- **TURN Relay**: Cloudflare TURN (primary, 1TB/mo free tier) — short-lived credentials generated at deploy time
 - **File Transfer**: P2P WebRTC data channels over TURN
-- **GIF Search**: [Gifbox](https://gifbox.me) free API (no key required)
+- **GIF Search**: [GIPHY](https://developers.giphy.com) API (Powered by GIPHY)
 - **Emoji Picker**: [emoji-picker-element](https://github.com/nolanlawson/emoji-picker-element)
 - **Cryptography**: Web Crypto API (`window.crypto.subtle`)
 
@@ -111,8 +113,9 @@ Deployable directly to **GitHub Pages** with zero backend infrastructure.
 
 - **No Forward Secrecy**: If a room password is compromised, all past messages (within the relay's retention window) can be decrypted.
 - **Metadata Leakage**: Room slugs and event kinds are visible to Nostr relay operators. Event *content* remains encrypted.
-- **Ephemeral Messages**: Page reload clears room messages (re-fetched from relays). DM conversations persist in sessionStorage. Room config persists in localStorage.
-- **TURN Bandwidth**: The free ExpressTURN tier (1TB/month) is sufficient for text + voice. Heavy file transfers may consume it faster.
+- **Ephemeral Messages**: Page reload re-fetches room messages from relays. DM conversations persist in sessionStorage. Room config persists in localStorage.
+- **TURN Credential Expiry**: Cloudflare TURN credentials have a 1-day TTL; each GitHub deploy regenerates them. Load the latest deploy within the TTL window.
+- **TURN Bandwidth**: The free Cloudflare TURN tier (1TB/month) is sufficient for text + voice. Heavy file transfers may consume it faster.
 - **File Transfer**: Requires both peers to be online simultaneously. Files are transferred P2P over WebRTC data channels and are not stored on any server.
 - **Hardcoded Relays**: Six default Nostr relays are hardcoded. No UI to add/remove relays yet.
 - **Relay Dependency**: App relies on Nostr relays for message delivery. If all relays are unreachable, messaging is unavailable.
@@ -121,29 +124,32 @@ Deployable directly to **GitHub Pages** with zero backend infrastructure.
 
 ## 🌐 GitHub Pages Deployment
 
-Since the entire application is contained inside `index.html`, deploying to GitHub Pages requires no build step:
+Deployment is automated via a GitHub Actions workflow (`deploy.yml`) that:
 
-1. Push your repository to GitHub.
-2. Go to **Settings > Pages** in your GitHub repository.
-3. Select **Source: Deploy from a branch**.
-4. Choose **Branch: main** and **Folder: / (root)**, then click **Save**.
-5. Your app will be live at `https://st33ldi9ital.github.io/chat/`!
+1. Checks out the code.
+2. Injects GIPHY + Cloudflare TURN credentials (generated fresh each deploy).
+3. Commits the processed `index.html` to the `gh-pages` branch and force-pushes it.
+
+**GitHub Pages must be configured to serve from the `gh-pages` branch** (Settings > Pages > Source > Deploy from a branch > `gh-pages` / root). Each push to `main` triggers an automatic deploy.
+
+Your app will be live at `https://st33ldi9ital.github.io/chat/`!
 
 ---
 
 ## ☁️ GitHub Secrets (for CI/CD TURN Credentials)
 
-The GitHub Actions workflow (`deploy.yml`) injects ExpressTURN credentials at deploy time.
+The GitHub Actions workflow (`deploy.yml`) generates fresh Cloudflare TURN credentials at deploy time
+and injects them into `index.html` (so TURN keys never ship in the static file).
 Set the following secrets in your GitHub repository at **Settings > Secrets and variables > Actions**:
 
 | Secret | Description |
 |--------|-------------|
-| `EXPRESS_TURN_URL` | ExpressTURN relay URL (e.g. `turn:your-relay.example.com:3478`) |
-| `EXPRESS_TURN_USER` | ExpressTURN username |
-| `EXPRESS_TURN_PASS` | ExpressTURN credential / password |
+| `CF_TURN_ID` | Cloudflare TURN Key ID |
+| `CF_TURN_TOKEN` | Cloudflare TURN API token |
+| `GIPHY_API` | GIPHY API key (for the GIF picker) |
 
-If these secrets are not set, the app falls back to public ExpressTURN demo credentials
-(no guarantee of availability) and Metered.ca open TURN relays.
+Cloudflare TURN: [create a TURN Key](https://developers.cloudflare.com/realtime/reference/turn/)
+with 1TB/month free. The GIPHY key is optional — without it the picker still opens but shows a message.
 
 ## 📄 License
 
