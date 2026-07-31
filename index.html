@@ -3235,10 +3235,9 @@
             isSpeaking: false,
             volume: this.peers[ev.pubkey]?.volume || 100
           };
-          // If we're in the same voice channel, initiate WebRTC connection
+          // If we're in the same voice channel, initiate WebRTC connection to them
           if (this.voice.connected && payload.inVoice && payload.channel === this.voice.channel && ev.pubkey !== this.user.pk) {
-            // Deterministic initiator: lexicographically smaller pubkey creates offer
-            if (this.user.pk < ev.pubkey && !this.voice.peerConnections[ev.pubkey]) {
+            if (!this.voice.peerConnections[ev.pubkey]) {
               this.initiateWebRTCConnection(ev.pubkey);
             }
           }
@@ -3306,8 +3305,7 @@
             // Connect to peers in the same voice channel
             const sameChannelPeers = this.getPeersInVoiceChannel(channelId);
             sameChannelPeers.forEach(peer => {
-              // Deterministic initiator: Lexically smaller pubkey creates offer
-              if (this.user.pk < peer.pubkey) {
+              if (!this.voice.peerConnections[peer.pubkey] && peer.pubkey !== this.user.pk) {
                 this.initiateWebRTCConnection(peer.pubkey);
               }
             });
