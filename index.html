@@ -291,7 +291,7 @@
           </button>
         </div>
         <div class="flex items-center justify-between text-[11px] text-gray-400 pt-1 border-t border-gray-800">
-          <span>TURN Relay: Metered.ca</span>
+          <span>TURN Relay: <span class="font-semibold text-gray-300" x-text="voice.relayName"></span></span>
           <span class="text-app-green font-semibold">Anonymized</span>
         </div>
       </div>
@@ -1138,7 +1138,8 @@
           localAudioContext: null,
           remoteAudioContexts: {}, // pubkey -> AudioContext
           peerConnections: {}, // pubkey -> RTCPeerConnection
-          peerAudioElements: {} // pubkey -> HTMLAudioElement
+          peerAudioElements: {}, // pubkey -> HTMLAudioElement
+          relayName: 'Unknown' // actual TURN relay detected from selected candidate pair
         },
 
         // Direct Message State
@@ -3401,6 +3402,9 @@
             }
           };
           pc.oniceconnectionstatechange = () => {
+            if (pc.iceConnectionState === 'connected') {
+              this.detectVoiceRelay();
+            }
             if (pc.iceConnectionState === 'failed' && !pc._iceRestarting) {
               pc._iceRestarting = true;
               setTimeout(async () => {
@@ -3757,6 +3761,42 @@
             this.showToast('File download failed');
           }
           delete this._fileTransfers[transferId];
+        },
+
+        async detectVoiceRelay() {
+          // Inspect the active PC's candidate stats to find which TURN
+          // relay is actually carrying the voice connection
+          try {
+            for (const pc of Object.values(this.voice.peerConnections)) {
+              if (!pc || pc.iceConnectionState !== 'connected') continue;
+              const stats = await pc.getStats();
+              let relayAddr = null;
+              stats.forEach(report => {
+                if (report.type === 'local-candidate' && report.candidateType === 'relay') {
+                  relayAddr = report.ip + ':' + (report.port || '');
+                }
+              });
+              if (relayAddr) {
+                this.voice.relayName = this.nameRelay(relayAddr);
+                return;
+              }
+            }
+          } catch (e) {}
+        },
+
+        nameRelay(addr) {
+          // Match the relay address/port against configured TURN servers
+          const addrLower = addr.toLowerCase();
+          const host = addrLower.split(':')[0];
+          const configs = [
+            { hosts: ['free.expressturn.com', 'relay1.expressturn.com', 'express'], name: 'ExpressTURN' },
+            { hosts: ['metered'], name: 'Metered.ca' },
+            { hosts: ['process-one', 'turn.process-one'], name: 'ProcessOne' }
+          ];
+          for (const c of configs) {
+            if (c.hosts.some(h => host.includes(h) || addrLower.includes(h))) return c.name;
+          }
+          return 'TURN Relay';
         },
 
         setupLocalAudioAnalyser(stream) {
