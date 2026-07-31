@@ -1208,13 +1208,12 @@
           reactionTarget: null // msg.id of the message being reacted to, or null
         },
 
-        // TURN / ICE Config: Cloudflare (Primary), ExpressTURN, Metered, ProcessOne
+        // TURN / ICE Config: Cloudflare TURN only (short-lived creds injected at deploy time)
         iceServers: [
           { urls: "stun:stun.l.google.com:19302" },
           { urls: "stun:stun1.l.google.com:19302" },
           { urls: "stun:stun.services.mozilla.com" },
 
-          // 0. Primary Relay: Cloudflare TURN (short-lived creds injected at deploy time)
           ...((() => {
             const cfUser = "%%CLOUDFLARE_TURN_USER%%";
             const cfPass = "%%CLOUDFLARE_TURN_PASS%%";
@@ -1229,59 +1228,7 @@
               username: cfUser,
               credential: cfPass
             }];
-          })()), 
-
-          // 1. Secondary Relay: ExpressTURN (Secrets Injected via GitHub Actions)
-          // Build all three transports (UDP, TCP, TLS-443) from the injected base URL
-          // so cellular/corporate networks that drop UDP can still connect.
-          ...((() => {
-            const base = "%%EXPRESS_TURN_URL%%";
-            if (base.startsWith('%%')) return [];
-            const user = "%%EXPRESS_TURN_USER%%";
-            const pass = "%%EXPRESS_TURN_PASS%%";
-            // Parse host (and optional :port) from 'turn:host:port'
-            const m = base.match(/^turn:([^:?]+)(?::(\d+))?$/);
-            const host = m ? m[1] : base.replace(/^turn:[a-zA-Z0-9.-]+:/, '');
-            const tcpPort = m && m[2] ? m[2] : '3478';
-            const tlsPort = m && m[2] ? '5349' : '5349';
-            const creds = {
-              username: user.startsWith('%%') ? '' : user,
-              credential: pass.startsWith('%%') ? '' : pass
-            };
-            return [
-              { urls: 'turn:' + host + ':' + tcpPort + '?transport=udp', ...creds },
-              { urls: 'turn:' + host + ':' + tcpPort + '?transport=tcp', ...creds },
-              { urls: 'turns:' + host + ':' + tlsPort + '?transport=tcp', ...creds }
-            ];
-          })()),
-
-          // ExpressTURN free tier (sign up at expressturn.com for dedicated credentials)
-          // The CI pipeline injects your credentials via GitHub Secrets above.
-          // For local dev, skip the ExpressTURN entries and use the public fallbacks below.
-
-          // 2. Secondary Public Relays: Metered OpenRelay (Public Free Pool)
-          {
-            urls: "turn:openrelay.metered.ca:80",
-            username: "openrelayproject",
-            credential: "openrelayproject"
-          },
-          {
-            urls: "turn:openrelay.metered.ca:443",
-            username: "openrelayproject",
-            credential: "openrelayproject"
-          },
-          {
-            urls: "turn:openrelay.metered.ca:3478",
-            username: "openrelayproject",
-            credential: "openrelayproject"
-          },
-
-          // 3. Fallback Open TURN Relay: ProcessOne
-          {
-            urls: "turn:turn.process-one.net:3478",
-            username: "guest",
-            credential: "guest"
-          }
+          })())
         ],
 
         // GIPHY API key — set via GIPHY_SDK secret in CI
@@ -3818,10 +3765,7 @@
           const addrLower = addr.toLowerCase();
           const host = addrLower.split(':')[0];
           const configs = [
-            { hosts: ['turn.cloudflare.com', 'cloudflare'], name: 'Cloudflare' },
-            { hosts: ['free.expressturn.com', 'relay1.expressturn.com', 'express'], name: 'ExpressTURN' },
-            { hosts: ['metered'], name: 'Metered.ca' },
-            { hosts: ['process-one', 'turn.process-one'], name: 'ProcessOne' }
+            { hosts: ['turn.cloudflare.com', 'cloudflare'], name: 'Cloudflare' }
           ];
           for (const c of configs) {
             if (c.hosts.some(h => host.includes(h) || addrLower.includes(h))) return c.name;
