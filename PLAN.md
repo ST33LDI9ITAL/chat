@@ -47,9 +47,9 @@ A P2P, client-only voice/file app where each client relays communications throug
 - Long-lived credentials live only on the **owner's server-side credential-minting endpoint** (a Cloudflare Worker or similar).
 - TURN service is global (Cloudflare), so no per-region infra management by owners.
 
-### 4.2 Credential minting (two shapes, pick one)
-- **Per-room Cloudflare Worker** (recommended, fully decentralized): a tiny Worker the room owner deploys (or is deployed on their behalf) that holds their Cloudflare TURN `Key ID` + `API token` as Worker secrets and exposes an endpoint returning short-lived `iceServers`. Each room points at its own Worker → owner-controlled billing.
-- **Central Worker managing many room keys** (simpler, less decentralized): one Worker that mints creds for whichever room/key it's asked about. Reduces per-room deployment friction but makes the platform manager of keys (and partially re-centralizes the model).
+### 4.2 Credential minting (decision: per-room Worker only)
+- **Per-room Cloudflare Worker** (chosen): a tiny Worker the room owner deploys **themselves**, holding their Cloudflare TURN `Key ID` + `API token` as Worker secrets and exposing an endpoint returning short-lived `iceServers`. Each room points at its own Worker → owner-controlled billing + credential custody.
+- ~~Central Worker managing many room keys~~ — **rejected.** It would make the platform (or a single operator) the custodian of every room owner's long-lived Cloudflare API token, incurring security/liability and defeating cost isolation. Never hold another user's long-lived Cloudflare credentials.
 
 ### 4.3 Client wiring
 - Room settings store the room's TURN endpoint/credential source.
@@ -88,23 +88,34 @@ A P2P, client-only voice/file app where each client relays communications throug
 
 Goal: reduce "create Cloudflare TURN key + deploy Worker" to the lowest possible friction.
 
-Candidate approaches (not yet chosen):
-1. **Cloudflare CLI + script** that creates the TURN Key and deploys the Worker automatically. Powerful but technical.
-2. **Guided walkthrough** in the room-settings UI (step-by-step with copy-paste).
-3. **One-click-ish path:** owner pastes a Cloudflare API token; we guide them through deploying a Worker template (partial automation).
+**Decision (July 31, 2026): do NOT run a shared Worker for all rooms.**
+Hosting room owners' Cloudflare API tokens means taking on their billing custody and a security/liability burden that's not worth it. Each room owner should deploy their **own** Worker so their TURN key/API token stays in **their** Worker's secrets. This preserves full cost isolation and credential custody. The general principle: the app can never be the custodian of another user's long-lived Cloudflare credentials.
 
-Likely MVP: a **trimmed Worker template** + guided in-app walkthrough, then optionally a CLI/script for power users.
+### Recommended onboarding: Wrangler + official Cloudflare TURN template
+- Cloudflare publishes an **official TURN-credentials Worker example** (`cloudflare/speedtest` → `example/turn-worker/`). It reads a TURN key ID + API token from Worker env secrets, restrict caller by Referer origin, and returns short-lived `iceServers`. Use this as the template.
+- **Wrangler CLI** (`npm create cloudflare@latest` + `npx wrangler deploy`) can scaffold and deploy a Worker from a template with minimal commands. The room owner authenticates with **their own** Cloudflare account (there is no way — and no reason — to avoid the owner authenticating to Cloudflare).
+- Provide a **packaged onboarding script** (`setup-turn.sh` or similar) that when run by the owner:
+  1. Uses Wrangler to create+deploy the TURN Worker from the template
+  2. Sets the Worker secrets (their TURN Key ID + API token + allowed origin) via `wrangler secret put`
+  3. Prints the Worker URL + room slug to paste back into the app
+  4. Optionally creates the Cloudflare TURN Key itself via the Cloudflare API/CLI (reusing a token the owner creates once)
+
+### Friction reality
+- The owner **must** authenticate to their own Cloudflare account at least once (login + one API token). There's no way around it while keeping their key in their own Worker.
+- The script/template makes everything after that one-time setup near-automatic. Balance: a one-time technical setup for room owners who want voice; casual members just join and use the room's relay.
+- A guided in-app walkthrough should link the script/docs for non-technical owners.
 
 ---
 
 ## 7. Open Questions / Decisions Needed
 
-- [ ] Per-room Worker vs. central Worker managing many keys (decentralization vs. simplicity).
-- [ ] Do we provide/operate a Worker template, or just docs?
+- [ ] Finalize the onboarding script (Wrangler-based) and the Worker template to vendor into this repo.
+- [ ] Confirm whether to auto-create the Cloudflare TURN Key via API/CLI in the script, or require the owner create it in the dashboard once.
 - [ ] How to attribute Cloudflare relay usage back to users (accept client-side attribution; or move self-hosted coturn for hard enforcement).
 - [ ] Enforcement strictness: soft client caps vs. owner throttling/ban vs. hard relay quotas.
-- [ ] Onboarding UX: CLI script vs. guided walkthrough vs. template.
 - [ ] Whether this is worth building for the sidequest now, or deferred until the concept needs real growth.
+
+> Resolved: shared-Worker-for-all is rejected (would hold other users' Cloudflare tokens). Per-room self-deployed Worker is the chosen model.
 
 ---
 
