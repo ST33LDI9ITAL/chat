@@ -3372,13 +3372,11 @@
         },
 
         async initiateWebRTCConnection(targetPubkey) {
-          console.log('INITIATE WebRTC to', targetPubkey.substring(0,8));
           const pc = this.createPeerConnection(targetPubkey);
           this.voice.localStream.getTracks().forEach(track => pc.addTrack(track, this.voice.localStream));
 
           const offer = await pc.createOffer();
           await pc.setLocalDescription(offer);
-          console.log('OFFER set local desc, state:', pc.iceConnectionState, 'gather:', pc.iceGatheringState);
 
           const payload = {
             type: 'offer',
@@ -3398,14 +3396,12 @@
 
           pc.onicecandidate = async (e) => {
             if (e.candidate) {
-              console.log('ICE gather:', e.candidate.type, e.candidate.protocol, e.candidate.port, 'relayAddr=', e.candidate.relatedAddress, 'to', targetPubkey.substring(0,8));
               const payload = { type: 'ice', candidate: e.candidate };
               const encrypted = await this.encryptPayload(payload);
               await this.publishNostrEvent(25000, encrypted, targetPubkey);
             }
           };
           pc.oniceconnectionstatechange = () => {
-            console.log('ICE state ->', pc.iceConnectionState, 'peer', targetPubkey.substring(0,8));
             if (pc.iceConnectionState === 'failed' && !pc._iceRestarting) {
               pc._iceRestarting = true;
               setTimeout(async () => {
@@ -3500,7 +3496,6 @@
 
           } else if (payload.type === 'ice') {
             if (!payload.candidate) return;
-            console.log('RECV ICE from', senderPubkey.substring(0,8), 'type', payload.candidate.type, 'pcExists', !!this.voice.peerConnections[senderPubkey]);
             const cand = new RTCIceCandidate(payload.candidate);
             const pc = this.voice.peerConnections[senderPubkey];
             if (pc) {
