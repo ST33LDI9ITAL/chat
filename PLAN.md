@@ -30,7 +30,7 @@ A P2P, client-only voice/file app where each client relays communications throug
 - [ ] Room owners have **visibility, alarms, and restrictions** over per-user bandwidth to prevent abuse (important because TURN also carries file transfers).
 - [ ] Onboarding for room operators is as close to one-step as possible (Cloudflare CLI/script, guided walkthrough, or template).
 - [ ] **Intended design: client-as-server.** The room lives while people are in it; an empty room resets. No durable server state (see Section 5 for the security rails this requires).
-- [ ] **Opt-in stable identity** (seed-derived, changeable) so friends can always find an operator's rooms, and owners can re-lock rooms after a reset (see Section 5).
+- [ ] **Opt-in stable identity** (portable unique CUID, changeable, not hardware-bound) so friends can always find an operator's rooms, and owners can re-lock rooms after a reset or from a new device (see Section 5).
 - [ ] Layer in known tradeoff: without a relay, ~20-25% of remote connections (mobile/enterprise CGNAT) may fail — operators fix by enabling BYO-TURN.
 
 ---
@@ -136,15 +136,18 @@ The client **IS the server.** No durable backend exists; rooms are ephemeral, ev
 
 Think: **owner-scoped TURN** (Section 4.1) is a signed, owner-locked record; a takeover of the room's *claim* inherits default relay only, until the true operator re-asserts.
 
-### Stable identity: opt-in, seed-derived, changeable (decision)
+### Stable identity: opt-in, portable unique ID (CUID-style), changeable (decision)
 
-To let friends **always find an operator's rooms** (and let an operator re-lock rooms after a reset), add an **opt-in stable identity**:
+To let friends **always find an operator's rooms** (and let an operator re-lock rooms after a reset), add an **opt-in stable identity**. **Do NOT derive it from hardware** — a hardware-hashed ID is locked to one device, so an owner who gets a new computer/phone would lose their stable ID and could not reclaim their room/TURN, defeating the purpose.
 
-- Derive the stable ID deterministically from a **user-chosen seed hashed with unique hardware identity** (e.g., `HMAC(hardware.id, seed)`), so it's bound to the device but not guessable.
-- **Users can change the seed to change their ID** — for privacy, untangling, or starting fresh — while keeping the *same* default ephemeral behavior for everyone who opts out.
-- Deterministic-from-seed means the stable ID is **recoverable** (same device + same seed → same ID) without storing a private key.
-- This is a **UX convenience**, not a safety requirement: it mainly lets an operator reclaim their room name/identity and register their TURN reliably across sessions.
+Instead use a **portable unique ID (e.g., a CUID)** that is generated once and travels with the owner across devices:
+
+- The stable ID is a **single unique value (CUID)** generated on first opt-in, **stored** (README/F exportable) so the owner can move it to any device — new PC, laptop, phone — and keep the same identity/rooms/TURN link.
+- **Users can regenerate the CUID to change their ID** — for privacy, untangling, or starting fresh — while keeping the *same* default ephemeral behavior for everyone who opts out.
+- Keep the seed for CUID generation as an **exportable backup** (localStorage + export), since portability depends on carrying the value, not on a hardware trait.
+- This is a **UX convenience**, not a safety requirement: it mainly lets an operator reclaim their room name/identity and register their TURN reliably across sessions and devices.
 - **Default remains ephemeral.** Opt-in only. Privacy-by-default is preserved for everyone who doesn't explicitly choose a stable ID.
+- CUID's embedded timestamp/counter make collisions negligible; a random/cuid value here is a recoverable op-in identity, so its role is convenience, not cryptographic custody.
 
 ### Identity change vs. TURN ownership (decision: decouple them)
 
@@ -178,7 +181,7 @@ Internally we store `{url, key}`, but the onboarding **script emits a single com
 
 ### Open questions (narrowed)
 
-- Where does the stable ID's seed live (localStorage? exported backup) and how does a user port it to a new device?
+- Where/how does the user store their **portable CUID** so it can be moved to a new device (localStorage + export/import flow, backup code/QR)? Decide the exact UX.
 - Should a stable operator be able to explicitly **transfer** ownership (e.g., hand a room to a friend) rather than only lose/reclaim it?
 - Exact fail-closed semantics: how long before an unclaimed room's paid TURN is excluded, and how does the true operator re-lock cleanly?
 
