@@ -1,6 +1,6 @@
 # Plan: Bring-Your-Own-TURN Voice for a Room-Based P2P App
 
-> Status: **Planning** (concept validated; not yet implemented)
+> Status: **Planning** (concept validated; connectivity model decided: STUN + BYO-TURN; not yet implemented)
 > Scope: Sidequest community app, room-based, Cloudflare-only TURN
 > Last updated: August 1, 2026
 
@@ -23,21 +23,25 @@ A P2P, client-only voice/file app where each client relays communications throug
 
 ## 2. Goals
 
+- [x] **Connectivity model decided: STUN-direct default + BYO-TURN for reliability/privacy.** No app-owned relay (Section 4.4).
 - [ ] App is completely free and open (client-only, no central infra).
 - [ ] Voice/file relay cost is borne by each room's operator, not the platform.
-- [ ] Users' IPs stay hidden from other (untrusted) peers.
+- [ ] Users' IPs stay hidden from other (untrusted) peers **when a relay is configured**; relay-less rooms are explicitly best-effort direct P2P (not anonymized) per Section 4.4.
 - [ ] Room owners have **visibility, alarms, and restrictions** over per-user bandwidth to prevent abuse (important because TURN also carries file transfers).
 - [ ] Onboarding for room operators is as close to one-step as possible (Cloudflare CLI/script, guided walkthrough, or template).
 - [ ] **Intended design: client-as-server.** The room lives while people are in it; an empty room resets. No durable server state (see Section 5 for the security rails this requires).
 - [ ] **Opt-in stable identity** (seed-derived, changeable) so friends can always find an operator's rooms, and owners can re-lock rooms after a reset (see Section 5).
+- [ ] Layer in known tradeoff: without a relay, ~20-25% of remote connections (mobile/enterprise CGNAT) may fail — operators fix by enabling BYO-TURN.
 
 ---
 
 ## 3. Non-Goals (out of scope for now)
 
 - Self-hosted coturn (avoid — we explicitly want Cloudflare-only).
-- Global/centralized TURN pool paid by the platform.
+- Global/centralized TURN pool paid by the platform — **never**; STUN-direct is the free default, BYO-TURN the only relay (Section 4.4).
+- Optional app-owned shared relay as a connectivity bootstrap/fallback — **rejected**: free relays can't survive adoption and it re-centralizes cost; STUN + BYO-TURN covers this (Section 4.4).
 - Server-side SFU / Discord-style hub for this app (may be relevant for the MMO separately).
+- libp2p / DCUtR / WebTransport rewrite — **rejected** (symmetric NAT defeats it too; volunteer relays unreliable for media; Safari gap; big rewrite for no success-rate gain — Section 4.4).
 - Hard, un-bypassable bandwidth enforcement at the relay layer (requires coturn-style per-user quotas, which conflicts with Cloudflare-only). We settle for client-side soft enforcement.
 
 ---
@@ -65,6 +69,37 @@ A P2P, client-only voice/file app where each client relays communications throug
 - Per-pair `iceTransportPolicy`: relay-only for remote/untrusted peers; same-LAN detection already implemented and preserved.
 
 > **Owner presence is NOT required for VOIP.** Minting is done by the owner's **always-on Cloudflare Worker**, not the owner's browser — so members' calls work whether or not the owner is signed in. The owner's API token + TURN key live in the **Worker's secrets**, not their session. The only real dependencies are (1) the owner's signed TURN-config record mapping owner -> Worker URL being retrievable (relay/localStorage), and (2) the owner keeping the Worker **deployed and billed**. If the owner stops paying/cancels the Worker, that room's voice dies — a funding issue, not a presence issue.
+
+### 4.4 CONNECTIVITY DECISION: STUN + BYO-TURN (research-backed, Aug 2026)
+
+**The architecture is STUN-direct as the default + operator BYO-TURN as the reliability/privacy upgrade.** No app-owned shared relay, ever. (libp2p/nodejs evaluated and rejected — see below.)
+
+**Default — standard WebRTC/ICE with STUN** (free, unlimited):
+- ICE gathers host + server-reflexive (STUN) candidates; media flows direct P2P when a path exists.
+- Real-world direct (host+srflx) success is **~75-80%** (GetStream 75-80%; Kranky Geek ~80-85% direct; RTC Insights ~70% srflx; Forasoft plans 15-20% TURN).
+- **~20-25% need a relay.** Failures cluster on **symmetric/CGNAT** — disproportionately **mobile cellular** and **enterprise/corporate WiFi**. STUN cannot punch symmetric NAT, period.
+- No relay configured → room is **honest best-effort direct P2P (no anonymization)**: ~75-80% connect; symmetric-NAT/mobile may fail. Same-LAN direct (mDNS/host) always works.
+
+**Upgrade — operator BYO-TURN (Cloudflare):**
+- Covers the ~20-25% that need a reliable relay → ~100% remote connectivity + full anonymization for the room.
+- **Cloudflare TURN free tier = 1 TB/month** — easily covers small rooms / friend groups (voice ≈ 30 MB/hr/person); typically **$0** for the dominant use case.
+- Only a genuinely heavy/popular room exceeds the free tier — and then it's **the operator's bill** (cost isolation).
+
+**Three-tier user model:**
+| User | Mechanism | Direct success | Cost | Cloudflare? |
+|---|---|---|---|---|
+| Casual member (joins a room) | Uses that room's configured relay | — | $0 | No |
+| Casual member's own no-relay room | STUN direct P2P | ~75-80% | $0 | No |
+| Operator (wants reliable+private VoIP) | Set up Cloudflare TURN once | ~100% | $0 (free tier) | Yes |
+
+**Privacy note (deliberate shift):** the current code forces `iceTransportPolicy:'relay'` for remote peers (IP-hiding non-negotiable). Under STUN+BYP, that strict relay-only policy applies **only when a relay is configured**. A relay-less room is explicitly **not anonymized** — either it connects direct (P2P, IPs visible) or fails closed. This is a scoped, labeled exception; relay-configured rooms keep strict relay-only privacy.
+
+**Why NOT libp2p / DCUtR / WebTransport (evaluated Aug 2026):**
+- libp2p/DCUtR is **NOT an alternative to STUN** — it still uses STUN/ICE for address discovery; it only decentralizes the *coordination* and swaps a dedicated TURN for **volunteer peer relays** (Circuit Relay v2).
+- Its hole-punch success (~80%) matches plain STUN (~75-80%) because **symmetric NAT defeats both** — no protocol wins.
+- It does NOT eliminate the relay need; it just routes the ~20% through **less reliable** volunteer relays (bad for sustained voice/file).
+- Costs: major rewrite (abandon single-file WebRTC), **Safari lacks WebTransport**, still need a relay/bootstrap node, volunteer relays unreliable for media.
+- Verdict: **stay on standard WebRTC/ICE + STUN-direct + BYO-TURN.** Operators get ~100% by setting up Cloudflare once; no app-owned relay; libp2p buys nothing here.
 
 ---
 
