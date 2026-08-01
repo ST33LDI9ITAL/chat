@@ -138,6 +138,9 @@ TURN relay setup
 
 **(Simpler idea rejected:** deriving everything from one secret that encodes the endpoint — couples endpoint-lookup to the secret and is fragile; keep `{url, key}`.)
 
+**User-facing simplification (decision): bundle into ONE credential to track.**
+Internally we store `{url, key}`, but the onboarding **script emits a single compact code/QR** (e.g. base64 of `{workerUrl, secret}`). The operator keeps track of **one code to paste** — no need to remember the Cloudflare URL separately. On seed/identity change, the SAME code is re-linked to the new identity. (We keep `{url, secret}` internally for robustness; the one-value UX is a bundling concern, not a loss of the security model.)
+
 ### Open questions (narrowed)
 
 - Where does the stable ID's seed live (localStorage? exported backup) and how does a user port it to a new device?
