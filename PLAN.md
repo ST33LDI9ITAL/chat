@@ -42,19 +42,24 @@ A P2P, client-only voice/file app where each client relays communications throug
 
 ## 4. Architecture
 
-### 4.1 Per-room Cloudflare TURN
-- Each room that wants voice provides its own **Cloudflare TURN Key** (owner's billing).
-- The room's client mints **short-lived** TURN credentials from that key so the owner's long-lived key/API token never ships in the client.
-- Long-lived credentials live only on the **owner's server-side credential-minting endpoint** (a Cloudflare Worker or similar).
-- TURN service is global (Cloudflare), so no per-region infra management by owners.
+### 4.1 Owner-scoped TURN (NOT per-room)
 
-### 4.2 Credential minting (decision: per-room Worker only)
-- **Per-room Cloudflare Worker** (chosen): a tiny Worker the room owner deploys **themselves**, holding their Cloudflare TURN `Key ID` + `API token` as Worker secrets and exposing an endpoint returning short-lived `iceServers`. Each room points at its own Worker → owner-controlled billing + credential custody.
-- ~~Central Worker managing many room keys~~ — **rejected.** It would make the platform (or a single operator) the custodian of every room owner's long-lived Cloudflare API token, incurring security/liability and defeating cost isolation. Never hold another user's long-lived Cloudflare credentials.
+**Decision: TURN is tied to the owner, not the room** (July 31, 2026). An owner may run **multiple rooms** (personal + several community rooms); a separate TURN key + Worker per room would be wasteful and confusing. One owner → one Cloudflare TURN Key + one credential-minting Worker, which serves **all of their rooms**.
+
+- Each owner provides their own **Cloudflare TURN Key** (their billing), once.
+- All of that owner's room clients mint **short-lived** TURN credentials from that single key.
+- Long-lived credentials live only on the **owner's server-side credential-minting endpoint** (their Cloudflare Worker).
+- TURN service is global (Cloudflare), so no per-region infra management.
+
+### 4.2 Credential minting (decision: per-owner Worker only)
+- **Per-owner Cloudflare Worker** (chosen): one tiny Worker the owner deploys **themselves**, holding their Cloudflare TURN `Key ID` + `API token` as Worker secrets and exposing an endpoint returning short-lived `iceServers`. All of the owner's rooms point at **this same Worker**. Owner-controlled billing + credential custody, once.
+- The owner↔room binding is: every room owned by that owner references the **same** Worker endpoint. The app resolves a room's TURN source by looking up the room's owner, then using the owner's registered Worker.
+- ~~Per-room Worker~~ — **not chosen**: duplicates setup (key + Worker) for an owner running many rooms.
+- ~~Central Worker managing many owners' keys~~ — **rejected**: would make the platform (or a single operator) custodian of every owner's long-lived Cloudflare API token, incurring security/liability and defeating cost isolation. Never hold another user's long-lived Cloudflare credentials.
 
 ### 4.3 Client wiring
-- Room settings store the room's TURN endpoint/credential source.
-- When joining a room's voice channel, the client requests short-lived `iceServers` from the room's minting endpoint (or uses a refresh loop if creds expire mid-session).
+- Room settings reference the **owner's** TURN Worker endpoint (not a per-room one). Since rooms are already key-derived (slug bound to the owner pubkey), the app resolves a room's TURN source via its owner -> owner's registered Worker.
+- When joining any of the owner's room voice channels, the client requests short-lived `iceServers` from the owner's minting Worker (or uses a refresh loop if creds expire mid-session).
 - Per-pair `iceTransportPolicy`: relay-only for remote/untrusted peers; same-LAN detection already implemented and preserved.
 
 ---
@@ -84,6 +89,12 @@ TURN key ownership is 100% about **billing + custody**: who funds the relay, who
 
 The default privacy stance (ephemeral identity) **conflicts directly** with the need for **stable, permanent, unforgeable room ownership** that a paid-relay model depends on. Client-only + no-server gives no trusted anchor for "who is the rightful permanent owner of this room."
 
+### Key insight (July 31, 2026 discussion)
+
+Rooms are **already effectively key-derived**: the app uses the user pubkey hash to build the personal room slug, and room display names are cosmetic. So making a room inherently owner-bound is *not* a new cost — it's close to the current model. And because **TURN is owner-scoped (see 4.1)**, the thing that must be anchored is the **owner's TURN config**, not per-room ownership state.
+
+A hardware-derived persistent owner key helps confirm identity, but does **not** by itself make a room durable in a no-server app: ownership still lives as signed events on Nostr relays (which can be pruned/filtered), with no ordering authority. So the achievable, safe target for BYO-TURN is: **the owner's TURN config is key-locked and fail-closed** — even if claim-based room ownership is ambiguous for a spell, no one can hijack or re-point the owner's paid relay.
+
 ### Options (discussion)
 
 **A. Stable per-user identity (opt-in) for owners.**
@@ -99,7 +110,7 @@ By default a vanished owner's room drops to default (non-paid) relay behavior; d
 **D. TURN config strictly owner-mutated + fail-closed.**
 Tie TURN config editing to the resolved owner's authenticated identity; refuse all custom-TURN config without a confirmed stable owner. Complements C.
 
-**Recommended minimum:** C + D (make claim-based takeover never inherit a paid TURN relay). **Full fix:** A (stable owner identity) on top.
+**Recommended minimum:** C + D (make claim-based takeover never inherit a paid TURN relay). Because TURN is **owner-scoped**, this effectively means: the owner's TURN config is a signed, owner-locked record on the relay; a claim-based newcomer to a room inherits only a **default/non-paid** relay until the true owner (holding the anchoring key) re-asserts. **Full fix:** A (stable owner identity) on top — mostly to let the true owner conveniently re-lock their rooms, not strictly required for relay safety.
 
 ### Open questions for discussion
 
