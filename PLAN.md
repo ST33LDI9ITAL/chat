@@ -111,6 +111,15 @@ To let friends **always find an operator's rooms** (and let an operator re-lock 
 - This is a **UX convenience**, not a safety requirement: it mainly lets an operator reclaim their room name/identity and register their TURN reliably across sessions.
 - **Default remains ephemeral.** Opt-in only. Privacy-by-default is preserved for everyone who doesn't explicitly choose a stable ID.
 
+### Identity change vs. TURN ownership (decision: decouple them)
+
+**TURN ownership lives on the Cloudflare account, NOT on the chat identity.** A seed/ID change must never force touching the Worker, TURN key, or billing.
+
+- The Worker + Cloudflare key are bound to the operator's **Cloudflare account** (human, stable, billing) — neutral and never changes.
+- The chat identity only holds a **pointer** ("my rooms use this Worker URL"), not ownership-of-record.
+- **On a seed/ID change:** re-link the new identity to the *same* Worker URL (one-time re-registration in settings). The Worker/TURN relay is untouched.
+- Because the Worker is referrer-origin protected and controlled by the Cloudflare account, **using** the relay proves you control it — a bogus new-identity claim cannot mint working creds from a relay it doesn't control. TURN custody is anchored by Cloudflare-account access + Worker referrer protection, **not** by chat-identity continuity.
+
 ### Open questions (narrowed)
 
 - Where does the stable ID's seed live (localStorage? exported backup) and how does a user port it to a new device?
