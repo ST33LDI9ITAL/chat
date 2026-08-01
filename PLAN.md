@@ -241,7 +241,9 @@ Self-hostable, free, and open-source TURN servers (all support REST/ephemeral au
 - **Pion TURN** (Go, MIT) — single-binary / embeddable; minimal moving parts.
 - Rel (Elixir, Apache-2), Restund (Erlang, MIT), STUNner (Go/Apache-2, K8s) — other options.
 
-**Decision: NOT building yet.** Onboarding for self-hosted relay is not yet worked out, so **stick with Cloudflare** as the sole supported path for now. Revisit self-hosted onboarding (eturnal/coturn on a VPS behind the same Worker+secret pattern) later if demand warrants.
+> **Principle — the Worker is a generic, relay-agnostic credential provider.** Its only contract to the client is returning short-lived `iceServers`. The `workerUrl`+`secret` registration, client wiring, referrer-origin protection, fail-closed/owner-locked config, and one-code bundle are **100% shared** across relay backends. Only ONE function differs: how it mints creds (Cloudflare API `generate-ice-servers` vs HMAC over a `static-auth-secret`, which all FOSS servers implement identically per the IETF REST-access TURN scheme). Adding a self-hosted backend later = adding one alternate cred-minting function to the same Worker, NOT new architecture. So the app is not locked to Cloudflare; Cloudflare is just the easy default backend.
+
+**Decision: NOT building the self-hosted path yet.** Onboarding for self-hosted relay is not yet worked out (a VPS needs a public IP + open ports 3478/5349 + relay range, which is the real friction for non-technical owners), so **stick with Cloudflare** as the sole supported backend for now. Revisit self-hosted onboarding (eturnal/coturn/Pion on a VPS behind the same Worker+secret pattern) later if demand warrants.
 
 ---
 
