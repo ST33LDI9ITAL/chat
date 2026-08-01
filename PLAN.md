@@ -2,7 +2,7 @@
 
 > Status: **Planning** (concept validated; not yet implemented)
 > Scope: Sidequest community app, room-based, Cloudflare-only TURN
-> Last updated: July 31, 2026
+> Last updated: August 1, 2026
 
 ---
 
@@ -10,10 +10,11 @@
 
 A P2P, client-only voice/file app where each client relays communications through a TURN service for IP privacy and NAT traversal. The core problem: if the app itself provides/pays for one global TURN relay, the app owner pays for **all** communications across all rooms. Should the app grow, this bill is unsustainable.
 
-**Proposed model:** each room provides its own TURN relay. The app stays free and open to all; room operators who want voice supply and fund their own relay (Cloudflare TURN). This shifts cost where it belongs (room operators), keeps the app self-hostable (the client is all users need — no server), preserves user privacy (relay-only), and is cost-isolated (a popular room pays its own bill, not the platform).
+**Proposed model:** the **operator brings their own Cloudflare TURN** for their rooms. The app stays free and open to all; operators who want voice supply and fund their own relay (one Cloudflare TURN key + one Worker, owner-scoped across all their rooms). This shifts cost where it belongs (operators), keeps the app self-hostable (the client is all users need — no server), preserves user privacy (relay-only), and is cost-isolated (a popular room pays its own bill, not the platform).
 
 ### Why this model fits
-- **Room-centric comms** — no global DMs; all messages/voice are room-scoped, so "room provides relay" maps cleanly onto the architecture.
+- **Room-centric comms** — no global DMs; all messages/voice are room-scoped, so "operator brings relay" maps cleanly onto the architecture.
+- **Client-as-server** — the room lives while people are in it and resets when empty; no durable server state to maintain (see Section 5). The client is effectively the server.
 - **Affordable for small servers** — low-traffic rooms fit within Cloudflare's free tier; heavy rooms pay their own.
 - **Private & secure** — relay-only hides peer IPs; TURN operators see only bytes + IPs (DTLS-SRTP keeps audio encrypted).
 - **Self-hostable** — client is the whole app; no app-owned backend.
@@ -27,7 +28,8 @@ A P2P, client-only voice/file app where each client relays communications throug
 - [ ] Users' IPs stay hidden from other (untrusted) peers.
 - [ ] Room owners have **visibility, alarms, and restrictions** over per-user bandwidth to prevent abuse (important because TURN also carries file transfers).
 - [ ] Onboarding for room operators is as close to one-step as possible (Cloudflare CLI/script, guided walkthrough, or template).
-- [ ] ⛔ **Blocking:** resolve stable room ownership vs. ephemeral identity **before** any per-room TURN (see Section 5). TURN key custody/billing cannot ride on a transient claim-based identity.
+- [ ] **Intended design: client-as-server.** The room lives while people are in it; an empty room resets. No durable server state (see Section 5 for the security rails this requires).
+- [ ] **Opt-in stable identity** (seed-derived, changeable) so friends can always find an operator's rooms, and owners can re-lock rooms after a reset (see Section 5).
 
 ---
 
@@ -66,60 +68,54 @@ A P2P, client-only voice/file app where each client relays communications throug
 
 ---
 
-## 5. ⛔ BLOCKING CONSTRAINT: Stable Room Ownership vs. Ephemeral Identity
+## 5. DESIGN: Client-as-Server — the room lives while people are in it, resets when empty
 
-> This is the **highest-priority blocker** for bring-your-own-TURN. Discussed July 31, 2026. Do not implement per-room TURN until this is resolved.
+> Updated July 31, 2026. Was previously framed as a "blocker". Reframed as **intended design** (not a bug/limitation to defeat). The security rails below still apply, but the core model is embraced, not worked around.
 
-### The problem
+### The model
 
-The BYO-TURN model hands a room's paid relay (and the Cloudflare TURN Key + API token behind it) to the **room owner**. But the app's identity + ownership model is fundamentally **transient**:
+The client **IS the server.** No durable backend exists; rooms are ephemeral, event-based constructs on Nostr relays:
 
-- **Identity is ephemeral (`sessionStorage`):** every client generates a new secp256k1 keypair on first load in a tab and stores it in `sessionStorage`. Closing the tab / opening a new one → **brand-new pubkey each time.**
-- **Ownership is a timestamped claim:** room ownership is a signed kind:1 event with an encrypted `type:'ownership'` payload on the Nostr relay (legacy header comment says kind:30000, but the code publishes kind:1). Resolved by **earliest claim timestamp wins; tie → lowest pubkey wins.** Also cached locally in `chat_room_owners` (localStorage).
-- **Takeover on absence:** if an owner's claim is stale/absent and another client is present when no better claim exists, a newcomer **self-claims** after the ~6s grace period (`_resolveOwnership`) and **becomes owner**.
+- **Room lives while people are in it.** Activity keeps it present on the relay.
+- **Room sleeps/resets when empty.** No idle state, no drift, no stale history — like a game lobby that only exists while players are online.
+- **Owner presence is NOT required for VOIP** (see 4.3): the always-on Cloudflare Worker mints TURN creds, not the owner's browser.
+- **This is the product identity:** a serverless, secure, cheap alternative to Discord — boot it, invite friends, hop on; when everyone leaves it resets. No server to run, no always-on bill (only the operator's opt-in TURN relay).
 
-### Why this breaks BYO-TURN (unsafe)
+**Consequences to embrace:**
+- An empty/idle room has no guarantee of surviving relay pruning. If it goes empty for days and someone rejoins, it may reset to a clean state. That's intended.
+- No durable ordering/ownership authority — the present is authoritative.
+- The one thing that must still be protected is the **operator's paid TURN relay** (billing + key custody). Protect that so an empty-room reset or a claim takeover never lets a stranger inherit or re-point a paid relay.
 
-TURN key ownership is 100% about **billing + custody**: who funds the relay, who holds the long-lived Cloudflare token, who can edit the room's TURN config. With ephemeral identity:
+### Identity & ownership today (context)
 
-- Room owner closes tab (as they often will) → they lose their pubkey.
-- When they return, they're a **different pubkey** → not recognized as owner → **cannot re-own their own room**.
-- A present stranger can **self-claim and effectively take over** the room **and its paid TURN relay** → billing + credential-custody risk to the prior owner.
-- Orphaned-owner rooms are ambiguous (owner vanished, no valid claim).
+- **Identity is ephemeral (`sessionStorage`)** by default — new secp256k1 keypair per tab; new pubkey per tab close. (Strongest privacy by default.)
+- **Ownership is a timestamped claim** on the relay (signed kind:1 `type:'ownership'`), resolved by earliest timestamp, tie → lowest pubkey. Also cached in `chat_room_owners` (localStorage).
+- **Takeover on absence:** if no better claim exists, a newcomer self-claims after ~6s and becomes owner. Fine for ephemeral rooms; must be fail-closed WRT paid TURN.
+- Rooms are already effectively **key-derived** (personal room slug = pubkey hash; display names cosmetic).
 
-### Root cause
+### Security rails (keep these)
 
-The default privacy stance (ephemeral identity) **conflicts directly** with the need for **stable, permanent, unforgeable room ownership** that a paid-relay model depends on. Client-only + no-server gives no trusted anchor for "who is the rightful permanent owner of this room."
+**C. Ownerless/fail-closed TURN** — an empty-or-taken-over room provides only a default (non-paid) relay until the true operator re-locks. A claim-based newcomer never inherits a **paid** relay. *Minimum required, regardless.*
 
-### Key insight (July 31, 2026 discussion)
+**D. TURN config key-locked** — the operator's TURN config is a signed record only that operator's key can mutate. No custom TURN without a confirmed operator. Complements C.
 
-Rooms are **already effectively key-derived**: the app uses the user pubkey hash to build the personal room slug, and room display names are cosmetic. So making a room inherently owner-bound is *not* a new cost — it's close to the current model. And because **TURN is owner-scoped (see 4.1)**, the thing that must be anchored is the **owner's TURN config**, not per-room ownership state.
+Think: **owner-scoped TURN** (Section 4.1) is a signed, owner-locked record; a takeover of the room's *claim* inherits default relay only, until the true operator re-asserts.
 
-A hardware-derived persistent owner key helps confirm identity, but does **not** by itself make a room durable in a no-server app: ownership still lives as signed events on Nostr relays (which can be pruned/filtered), with no ordering authority. So the achievable, safe target for BYO-TURN is: **the owner's TURN config is key-locked and fail-closed** — even if claim-based room ownership is ambiguous for a spell, no one can hijack or re-point the owner's paid relay.
+### Stable identity: opt-in, seed-derived, changeable (decision)
 
-### Options (discussion)
+To let friends **always find an operator's rooms** (and let an operator re-lock rooms after a reset), add an **opt-in stable identity**:
 
-**A. Stable per-user identity (opt-in) for owners.**
-Persist a key for rooms a user "owns" (export a seed, or a "save my identity" flow). Owner uses a persistent key → only they can set the room's TURN. Rooms without a stable owner **cannot** have a BYO-TURN relay (fall back to platform/default relay-only).
-— Most aligned with a real product; adds an identity opt-in layer the app currently lacks.
+- Derive the stable ID deterministically from a **user-chosen seed hashed with unique hardware identity** (e.g., `HMAC(hardware.id, seed)`), so it's bound to the device but not guessable.
+- **Users can change the seed to change their ID** — for privacy, untangling, or starting fresh — while keeping the *same* default ephemeral behavior for everyone who opts out.
+- Deterministic-from-seed means the stable ID is **recoverable** (same device + same seed → same ID) without storing a private key.
+- This is a **UX convenience**, not a safety requirement: it mainly lets an operator reclaim their room name/identity and register their TURN reliably across sessions.
+- **Default remains ephemeral.** Opt-in only. Privacy-by-default is preserved for everyone who doesn't explicitly choose a stable ID.
 
-**B. Owner capability token surviving tab close.**
-Issue/derive a stable ownership token stored separately (e.g., localStorage) that re-authenticates the same human as owner regardless of ephemeral pubkey. Softer than full stable identity; still needs a trust anchor.
+### Open questions (narrowed)
 
-**C. Ownerless-room fail-safe for TURN.**
-By default a vanished owner's room drops to default (non-paid) relay behavior; do **not** let a random newcomer inherit control of a paid custom TURN. Prevents billing/custody hijack without solving identity. **Minimum required regardless of other choices.**
-
-**D. TURN config strictly owner-mutated + fail-closed.**
-Tie TURN config editing to the resolved owner's authenticated identity; refuse all custom-TURN config without a confirmed stable owner. Complements C.
-
-**Recommended minimum:** C + D (make claim-based takeover never inherit a paid TURN relay). Because TURN is **owner-scoped**, this effectively means: the owner's TURN config is a signed, owner-locked record on the relay; a claim-based newcomer to a room inherits only a **default/non-paid** relay until the true owner (holding the anchoring key) re-asserts. **Full fix:** A (stable owner identity) on top — mostly to let the true owner conveniently re-lock their rooms, not strictly required for relay safety.
-
-### Open questions for discussion
-
-- Do we introduce stable/permanent identity for room owners, or keep everything ephemeral for privacy?
-- How to reconcile "privacy by default" with "ownership must survive the owner closing the tab"?
-- Should ownership ever transfer, and if so under what explicit control (not automatic claim takeover)?
-- How do we prevent a hijacker from at minimum inheriting/manipulating a room's **paid TURN config** even if we keep claims ephemeral?
+- Where does the stable ID's seed live (localStorage? exported backup) and how does a user port it to a new device?
+- Should a stable operator be able to explicitly **transfer** ownership (e.g., hand a room to a friend) rather than only lose/reclaim it?
+- Exact fail-closed semantics: how long before an unclaimed room's paid TURN is excluded, and how does the true operator re-lock cleanly?
 
 ---
 
