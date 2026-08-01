@@ -37,7 +37,7 @@ A P2P, client-only voice/file app where each client relays communications throug
 
 ## 3. Non-Goals (out of scope for now)
 
-- Self-hosted coturn (avoid — we explicitly want Cloudflare-only).
+- **Self-hosted TURN** (coturn/eturnal/Pion/Rel/Restund/STUNner) — **deferred**, not a hard non-goal. Acknowledged as a future self-hostable FOSS path (Section 7) but NOT building it yet; onboarding not yet worked out, so Cloudflare-only for now.
 - Global/centralized TURN pool paid by the platform — **never**; STUN-direct is the free default, BYO-TURN the only relay (Section 4.4).
 - Optional app-owned shared relay as a connectivity bootstrap/fallback — **rejected**: free relays can't survive adoption and it re-centralizes cost; STUN + BYO-TURN covers this (Section 4.4).
 - Server-side SFU / Discord-style hub for this app (may be relevant for the MMO separately).
@@ -230,6 +230,18 @@ Hosting room owners' Cloudflare API tokens means taking on their billing custody
 - The owner **must** authenticate to their own Cloudflare account at least once (login + one API token). There's no way around it while keeping their key in their own Worker.
 - The script/template makes everything after that one-time setup near-automatic. Balance: a one-time technical setup for room owners who want voice; casual members just join and use the room's relay.
 - A guided in-app walkthrough should link the script/docs for non-technical owners.
+
+### Future: self-hosted FOSS TURN (acknowledged, NOT building yet)
+
+The minting-Worker model is **relay-server-agnostic** — the Worker just needs to emit short-lived `iceServers`. The HMAC ephemeral-credential pattern is identical whether backed by the Cloudflare API **or** a self-hosted TURN server's `static-auth-secret`. So operators without a Cloudflare account could, in future, run their own open-source TURN on a cheap VPS.
+
+Self-hostable, free, and open-source TURN servers (all support REST/ephemeral auth):
+- **eturnal** (Erlang, MIT by ProcessOne) — cleanest, lightest, readable YAML, Docker-friendly; best drop-in.
+- **coturn** (C, BSD-3) — de-facto standard (Jitsi/Nextcloud/Matrix); most mature/docs.
+- **Pion TURN** (Go, MIT) — single-binary / embeddable; minimal moving parts.
+- Rel (Elixir, Apache-2), Restund (Erlang, MIT), STUNner (Go/Apache-2, K8s) — other options.
+
+**Decision: NOT building yet.** Onboarding for self-hosted relay is not yet worked out, so **stick with Cloudflare** as the sole supported path for now. Revisit self-hosted onboarding (eturnal/coturn on a VPS behind the same Worker+secret pattern) later if demand warrants.
 
 ---
 
