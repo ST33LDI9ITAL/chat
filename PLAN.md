@@ -120,6 +120,24 @@ To let friends **always find an operator's rooms** (and let an operator re-lock 
 - **On a seed/ID change:** re-link the new identity to the *same* Worker URL (one-time re-registration in settings). The Worker/TURN relay is untouched.
 - Because the Worker is referrer-origin protected and controlled by the Cloudflare account, **using** the relay proves you control it — a bogus new-identity claim cannot mint working creds from a relay it doesn't control. TURN custody is anchored by Cloudflare-account access + Worker referrer protection, **not** by chat-identity continuity.
 
+### Registration model: workerUrl + operator secret (decision)
+
+**Store BOTH a `workerUrl` and an operator secret `key` in the operator's room settings.**
+
+- **`workerUrl`** = public, points clients at the minting endpoint. Alone it proves nothing (any user could paste another owner's URL).
+- **`key` (secret)** = the security-critical token. Set as a secret on the Worker at deploy time (alongside the TURN key ID/API token). The Worker **only mints creds when the request's secret matches** its configured value.
+- Referrer-origin protection only stops *outside apps* from abusing the relay; it does **not** distinguish between users of the same app. So the per-operator secret is what actually authorizes a specific identity to use a specific Worker.
+- A user who knows someone else's `workerUrl` but not their `key` is **rejected** — cannot burn that operator's relay/bill.
+
+Settings UI would look like:
+```
+TURN relay setup
+  Worker URL : https://yourapp-worker.<acct>.workers.dev
+  Access key : ••••••••  (paste the secret configured on the Worker)
+```
+
+**(Simpler idea rejected:** deriving everything from one secret that encodes the endpoint — couples endpoint-lookup to the secret and is fragile; keep `{url, key}`.)
+
 ### Open questions (narrowed)
 
 - Where does the stable ID's seed live (localStorage? exported backup) and how does a user port it to a new device?
