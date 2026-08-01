@@ -27,6 +27,7 @@ A P2P, client-only voice/file app where each client relays communications throug
 - [ ] Users' IPs stay hidden from other (untrusted) peers.
 - [ ] Room owners have **visibility, alarms, and restrictions** over per-user bandwidth to prevent abuse (important because TURN also carries file transfers).
 - [ ] Onboarding for room operators is as close to one-step as possible (Cloudflare CLI/script, guided walkthrough, or template).
+- [ ] ⛔ **Blocking:** resolve stable room ownership vs. ephemeral identity **before** any per-room TURN (see Section 5). TURN key custody/billing cannot ride on a transient claim-based identity.
 
 ---
 
@@ -58,7 +59,58 @@ A P2P, client-only voice/file app where each client relays communications throug
 
 ---
 
-## 5. Per-User Bandwidth Monitoring, Alerts & Restrictions (recurring theme)
+## 5. ⛔ BLOCKING CONSTRAINT: Stable Room Ownership vs. Ephemeral Identity
+
+> This is the **highest-priority blocker** for bring-your-own-TURN. Discussed July 31, 2026. Do not implement per-room TURN until this is resolved.
+
+### The problem
+
+The BYO-TURN model hands a room's paid relay (and the Cloudflare TURN Key + API token behind it) to the **room owner**. But the app's identity + ownership model is fundamentally **transient**:
+
+- **Identity is ephemeral (`sessionStorage`):** every client generates a new secp256k1 keypair on first load in a tab and stores it in `sessionStorage`. Closing the tab / opening a new one → **brand-new pubkey each time.**
+- **Ownership is a timestamped claim:** room ownership is a signed kind:1 event with an encrypted `type:'ownership'` payload on the Nostr relay (legacy header comment says kind:30000, but the code publishes kind:1). Resolved by **earliest claim timestamp wins; tie → lowest pubkey wins.** Also cached locally in `chat_room_owners` (localStorage).
+- **Takeover on absence:** if an owner's claim is stale/absent and another client is present when no better claim exists, a newcomer **self-claims** after the ~6s grace period (`_resolveOwnership`) and **becomes owner**.
+
+### Why this breaks BYO-TURN (unsafe)
+
+TURN key ownership is 100% about **billing + custody**: who funds the relay, who holds the long-lived Cloudflare token, who can edit the room's TURN config. With ephemeral identity:
+
+- Room owner closes tab (as they often will) → they lose their pubkey.
+- When they return, they're a **different pubkey** → not recognized as owner → **cannot re-own their own room**.
+- A present stranger can **self-claim and effectively take over** the room **and its paid TURN relay** → billing + credential-custody risk to the prior owner.
+- Orphaned-owner rooms are ambiguous (owner vanished, no valid claim).
+
+### Root cause
+
+The default privacy stance (ephemeral identity) **conflicts directly** with the need for **stable, permanent, unforgeable room ownership** that a paid-relay model depends on. Client-only + no-server gives no trusted anchor for "who is the rightful permanent owner of this room."
+
+### Options (discussion)
+
+**A. Stable per-user identity (opt-in) for owners.**
+Persist a key for rooms a user "owns" (export a seed, or a "save my identity" flow). Owner uses a persistent key → only they can set the room's TURN. Rooms without a stable owner **cannot** have a BYO-TURN relay (fall back to platform/default relay-only).
+— Most aligned with a real product; adds an identity opt-in layer the app currently lacks.
+
+**B. Owner capability token surviving tab close.**
+Issue/derive a stable ownership token stored separately (e.g., localStorage) that re-authenticates the same human as owner regardless of ephemeral pubkey. Softer than full stable identity; still needs a trust anchor.
+
+**C. Ownerless-room fail-safe for TURN.**
+By default a vanished owner's room drops to default (non-paid) relay behavior; do **not** let a random newcomer inherit control of a paid custom TURN. Prevents billing/custody hijack without solving identity. **Minimum required regardless of other choices.**
+
+**D. TURN config strictly owner-mutated + fail-closed.**
+Tie TURN config editing to the resolved owner's authenticated identity; refuse all custom-TURN config without a confirmed stable owner. Complements C.
+
+**Recommended minimum:** C + D (make claim-based takeover never inherit a paid TURN relay). **Full fix:** A (stable owner identity) on top.
+
+### Open questions for discussion
+
+- Do we introduce stable/permanent identity for room owners, or keep everything ephemeral for privacy?
+- How to reconcile "privacy by default" with "ownership must survive the owner closing the tab"?
+- Should ownership ever transfer, and if so under what explicit control (not automatic claim takeover)?
+- How do we prevent a hijacker from at minimum inheriting/manipulating a room's **paid TURN config** even if we keep claims ephemeral?
+
+---
+
+## 6. Per-User Bandwidth Monitoring, Alerts & Restrictions (recurring theme)
 
 **Why:** TURN carries file transfers too — a malicious or careless user could burn the owner's relay bandwidth (and money) with large transfers or continuous streaming. Owners need visibility and control.
 
@@ -84,7 +136,7 @@ A P2P, client-only voice/file app where each client relays communications throug
 
 ---
 
-## 6. Onboarding for Room Operators
+## 7. Onboarding for Room Operators
 
 Goal: reduce "create Cloudflare TURN key + deploy Worker" to the lowest possible friction.
 
@@ -107,7 +159,7 @@ Hosting room owners' Cloudflare API tokens means taking on their billing custody
 
 ---
 
-## 7. Open Questions / Decisions Needed
+## 8. Open Questions / Decisions Needed
 
 - [ ] Finalize the onboarding script (Wrangler-based) and the Worker template to vendor into this repo.
 - [ ] Confirm whether to auto-create the Cloudflare TURN Key via API/CLI in the script, or require the owner create it in the dashboard once.
@@ -119,7 +171,7 @@ Hosting room owners' Cloudflare API tokens means taking on their billing custody
 
 ---
 
-## 8. Existing Implementation Notes
+## 9. Existing Implementation Notes
 
 - Same-LAN adaptive voice relay already implemented (`iceTransportPolicy: 'all'` for trusted same-subnet peers; `'relay'` otherwise). Keep this under the per-room TURN model.
 - Current app uses a global Cloudflare TURN with deploy-time short-lived credential injection. Per-room model replaces/reduces reliance on that single app-level key.
@@ -127,7 +179,7 @@ Hosting room owners' Cloudflare API tokens means taking on their billing custody
 
 ---
 
-## 9. Related / Future (beyond this app)
+## 10. Related / Future (beyond this app)
 
 - **MMO voice:** run a central TURN/SFU (Discord model) since the game server is owned/controlled anyway; central TURN + analytics-backed enforcement is the right long-term play there, not per-user-room TURN.
 - **Self-hosted coturn** at scale for per-user quotas + full logs (only if Cloudflare-only constraint is relaxed).
