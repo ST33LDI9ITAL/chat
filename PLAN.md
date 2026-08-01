@@ -62,6 +62,8 @@ A P2P, client-only voice/file app where each client relays communications throug
 - When joining any of the owner's room voice channels, the client requests short-lived `iceServers` from the owner's minting Worker (or uses a refresh loop if creds expire mid-session).
 - Per-pair `iceTransportPolicy`: relay-only for remote/untrusted peers; same-LAN detection already implemented and preserved.
 
+> **Owner presence is NOT required for VOIP.** Minting is done by the owner's **always-on Cloudflare Worker**, not the owner's browser — so members' calls work whether or not the owner is signed in. The owner's API token + TURN key live in the **Worker's secrets**, not their session. The only real dependencies are (1) the owner's signed TURN-config record mapping owner -> Worker URL being retrievable (relay/localStorage), and (2) the owner keeping the Worker **deployed and billed**. If the owner stops paying/cancels the Worker, that room's voice dies — a funding issue, not a presence issue.
+
 ---
 
 ## 5. ⛔ BLOCKING CONSTRAINT: Stable Room Ownership vs. Ephemeral Identity
