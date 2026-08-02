@@ -1,6 +1,6 @@
 # VOIP Same-LAN Privacy Fix — Design Options (for review)
 
-> Draft for review. Status: analysis only; no code beyond the current in-progress fix is committed.
+> Status: **IMPLEMENTED & VERIFIED** — shipped in v1.5.1 (commit 4a4e15a), 4-round Deck reviewer pass confirmed the hard invariant.
 > Date: Aug 1, 2026
 
 ---
@@ -9,7 +9,7 @@
 
 Remote/untrusted room members must **never** learn a user's **public IP** (the srflx/STUN-reflexive address — the internet identity). Losing this is not an option.
 
-## Why the current in-progress fix is incomplete
+## The problem this solves (historical context: the v1.5.0 flaw)
 
 What's already done & verified good:
 - Presence no longer carries IPs (room-wide leak closed).
@@ -91,12 +91,12 @@ ICE-restart-on-failed guard should require `stable` only (not `have-remote-offer
 
 ---
 
-## DECISION (Aug 1, 2026): Solution A — Full proper fix
+## DECISION (Aug 1, 2026): Solution A — Full proper fix (IMPLEMENTED)
 
-Chosen by the user ("do the complete and proper best total solution").
+Chosen by the user ("do the complete and proper best total solution"). All of the below is implemented in v1.5.1.
 
-**Implementation scope:**
-- **Fix 1 — Per-peer NIP-04 voice signaling (kind 25500).** Move voice offer/answer/ice signaling from room-key kind 25000 to per-peer NIP-04 kind 25500 (same channel as the LAN handshake, distinguished by payload `type`). File transfer stays on kind 25000 (relay-only, no srflx leak).
+**What was implemented:**
+- **Fix 1 — Per-peer NIP-04 voice signaling (kind 25500).** Voice offer/answer/ice signaling rides per-peer NIP-04 kind 25500 (distinguished by payload `type`; also carries `probe_offer/answer/ice`). File transfer stays on kind 25000 (relay-only, no srflx leak).
 - **Fix 2 — Host-only reachability probe.** Same-LAN decided by a throwaway `RTCPeerConnection({ iceServers: [], iceTransportPolicy: 'all' })` that gathers only host candidates (no STUN → no srflx/WAN). Probe success = genuine direct reachability; failure = stay relay-only. No forgeable self-attested strings.
 - **Fix 4 — Glare correctness (H1).** If we're not the initiator and our connection failed while we have a pending local offer, answer the peer's offer instead of dropping it. ICE-restart-on-failed only from `stable`.
 - **Fix 3 — Trust accelerator (optional).** Same-LAN relax shortcut for explicitly trusted/own devices.
@@ -109,3 +109,13 @@ WAN IP (srflx) must never be gathered/exposed toward unverified remote peers. LA
 
 The host-only probe's OUTBOUND ICE connectivity checks could reveal the WAN IP (a probe PC with policy 'all' would run connectivity checks to attacker-supplied remote candidates; if a "candidate" points at the attacker's public VPS, our browser sends a STUN binding to it and the VPS sees our WAN IP). FIXED by `_probeCandidateAllowed` + `_sanitizeProbeSdp`: the probe now only ever contacts RFC1918 / link-local / mDNS addresses, and any remote candidate/SDP pointing at a public endpoint is dropped. So the probe can no longer be used to exfiltrate the WAN IP.
 
+
+---
+
+## Verification & final state (Aug 1, 2026)
+
+- **Shipped:** v1.5.1 (commit 4a4e15a). Syntax-clean; both inline `<script>` blocks pass `node --check`.
+- **4-round Deck reviewer pass** (9AA2448C, 869EB4D5, 7E6BBBA8, 22038E8E) confirmed the hard WAN-IP invariant is upheld: a remote attacker cannot obtain a user's public WAN IP via presence, voice signaling, probe signaling, candidate injection, or SDP injection; the relax decision is gated purely on probe-verified reachability.
+- **Key hardened details:** the relax gate ignores the forgeable `payload.lan_upgrade` (isSameLanTarget only); probe candidates/SDP filtered to RFC1918/mDNS/fe80 (no outbound WAN checks, no self-reflection); sent probe candidates filtered (no global-IPv6 disclosure); unsolicited-offer mic-attach gated to same-channel voice peers.
+- **Known follow-ups (not blocking):** `voice.trustedPeers` (Fix 3 accelerator) is declared but not yet wired to any UI (inert); a real-device test pass across browsers is recommended to confirm probe behavior in the wild.
+- **Scope note:** voice-channel membership is visible room-wide by design and only same-channel participants connect/hear; not treated as a flaw (see decision removing the prior mic-eavesdrop note).
