@@ -12,7 +12,8 @@ Deployable directly to **GitHub Pages** with zero backend infrastructure.
 - **Zero-Trust Client-Side Encryption**: All messages encrypted with **256-bit AES-GCM** using **100,000 PBKDF2 iterations of SHA-256** with room-specific salt.
 - **Ephemeral Identities**: Auto-generated `secp256k1` keypairs per session, stored only in `sessionStorage`.
 - **Nostr Event Signature Verification**: All incoming events verified via Schnorr signatures — forged events rejected.
-- **Adaptive IP Privacy**: Voice/video/file traffic is relayed through Cloudflare TURN — IPs hidden from remote peers. Same-LAN trusted peers (same public IP + same private subnet) connect directly for lower latency, while remote and untrusted peers are always relay-only (never relaxed), so IP-anonymity from outsiders is preserved.
+- **Per-Peer Voice Signaling**: Peer-to-peer voice offer/answer/ICE (and same-LAN probes) are encrypted to the specific peer via NIP-04 ECDH (kind 25500), so IP candidates reach only the intended peer — never the whole room.
+- **Adaptive IP Privacy**: Voice traffic is relayed through Cloudflare TURN — **public IPs hidden from remote peers**. Same-LAN peers connect directly only after a **host-only reachability probe** confirms they are genuinely on your network; remote/untrusted peers are always relay-only. Voice signaling is **per-peer NIP-04 encrypted**, so IP candidates never reach the whole room. File transfers stay relay-only.
 
 ### 📡 Messaging
 - **Text Chat**: Room-based channels with per-channel topics and pinned messages (MOTD).
@@ -37,7 +38,7 @@ Deployable directly to **GitHub Pages** with zero backend infrastructure.
 - **Mute/Deafen**: Global mic mute and audio deafen controls.
 - **Speaking Detection**: Real-time audio frequency analysis with visual glow rings on avatars in voice channels and membership list.
 - **Adaptive Relay**: Same-LAN users connect directly (low latency, works on a home network); remote/untrusted peers are always relay-only via Cloudflare TURN, preserving IP anonymity.
-- **Same-LAN Detection**: Public + private IPs are exchanged via presence; only same-public-IP peers sharing a private subnet are treated as trusted local peers.
+- **Probe-Based Same-LAN Detection**: Same-LAN is verified by a **host-only reachability probe** (a throwaway connection with no STUN/TURN, so it gathers only local host candidates and never exposes your public WAN IP). Only a peer that a probe can actually reach directly is treated as same-LAN — decided by observed reachability, never by forgeable IP claims.
 - **Channel Icon Picker**: Custom emoji/icon per channel.
 - **Command Autocomplete**: Type `/` to see all commands with descriptions.
 
@@ -78,7 +79,7 @@ Deployable directly to **GitHub Pages** with zero backend infrastructure.
 - **Icons**: [Lucide Icons](https://lucide.dev/)
 - **Sanitizer**: [DOMPurify](https://github.com/cure53/DOMPurify)
 - **Signaling**: [nostr-tools v2](https://github.com/nbd-wtf/nostr-tools) over 6 public Nostr relays
-- **WebRTC**: Native browser APIs with TURN relay (`iceTransportPolicy: relay`)
+- **WebRTC**: Native browser APIs with per-pair ICE policy — `relay` for remote/untrusted peers, `all` (host/direct) only for probe-verified same-LAN peers
 - **TURN Relay**: Cloudflare TURN (primary, 1TB/mo free tier) — short-lived credentials generated at deploy time
 - **File Transfer**: P2P WebRTC data channels over TURN
 - **GIF Search**: [GIPHY](https://developers.giphy.com) API (Powered by GIPHY)
@@ -117,7 +118,7 @@ Deployable directly to **GitHub Pages** with zero backend infrastructure.
 - **Ephemeral Messages**: Page reload re-fetches room messages from relays. DM conversations persist in sessionStorage. Room config persists in localStorage.
 - **TURN Credential Expiry**: Cloudflare TURN credentials have a 1-day TTL; each GitHub deploy regenerates them. Load the latest deploy within the TTL window.
 - **TURN Bandwidth**: The free Cloudflare TURN tier (1TB/month) is sufficient for text + voice. Heavy file transfers may consume it faster.
-- **Same-LAN Join Timing**: Because IP discovery is asynchronous, two same-LAN clients that join a voice channel at almost the same moment may experience a brief silence, then the connection upgrades to a direct path ~1–3 seconds later (once presence heartbeats confirm same-LAN). Remote peers remain relay-only.
+- **Same-LAN Direct Timing**: Two same-LAN clients that join a voice channel at the same moment may experience a brief relay-only moment, then the connection upgrades to a direct path ~1–3 seconds later once the privacy-safe host-only probe confirms same-LAN. Remote peers remain relay-only for IP protection.
 - **File Transfer**: Requires both peers to be online simultaneously. Files are transferred P2P over WebRTC data channels and are not stored on any server.
 - **Hardcoded Relays**: Six default Nostr relays are hardcoded. No UI to add/remove relays yet.
 - **Relay Dependency**: App relies on Nostr relays for message delivery. If all relays are unreachable, messaging is unavailable.
