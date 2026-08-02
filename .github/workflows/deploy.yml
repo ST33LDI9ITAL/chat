@@ -1,0 +1,72 @@
+name: Deploy Chat App to GitHub Pages
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Inject Service Secrets into index.html
+        run: |
+          # Generate fresh Cloudflare TURN credentials (1-day TTL) and inject them
+          CF_ID="${{ secrets.CF_TURN_ID }}"
+          CF_TOKEN="${{ secrets.CF_TURN_TOKEN }}"
+          if [ -n "$CF_ID" ] && [ -n "$CF_TOKEN" ]; then
+            echo "=== Generating Cloudflare TURN credentials ==="
+            RESP=$(curl -s -X POST "https://rtc.live.cloudflare.com/v1/turn/keys/${CF_ID}/credentials/generate-ice-servers" \
+              -H "Authorization: Bearer ${CF_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -d '{"ttl": 86400}')
+            # Find the iceServers entry that has username/credential (TURN, not the STUN-only one)
+            CF_USER=$(echo "$RESP" | python3 -c "import sys,json; data=json.load(sys.stdin)['iceServers']; s=next((x for x in data if x.get('username')), data[0]); print(s.get('username') or '')" 2>/dev/null)
+            CF_PASS=$(echo "$RESP" | python3 -c "import sys,json; data=json.load(sys.stdin)['iceServers']; s=next((x for x in data if x.get('credential')), data[0]); print(s.get('credential') or '')" 2>/dev/null)
+            if [ -n "$CF_USER" ] && [ -n "$CF_PASS" ]; then
+              sed -i "s|%%CLOUDFLARE_TURN_USER%%|${CF_USER}|g" index.html
+              sed -i "s|%%CLOUDFLARE_TURN_PASS%%|${CF_PASS}|g" index.html
+              echo "Cloudflare TURN credentials injected."
+            else
+              echo "WARN: Cloudflare TURN could not parse credentials. Response: ${RESP:0:150}"
+            fi
+          else
+            echo "Cloudflare TURN secrets not set; skipping."
+          fi
+
+          GIPHY_KEY="${{ secrets.GIPHY_API }}"
+          if [ -n "$GIPHY_KEY" ]; then
+            sed -i "s|_giphyKey: ''|_giphyKey: '${GIPHY_KEY}'|g" index.html
+            echo "=== GIPHY key injection check ==="
+            grep "_giphyKey:" index.html
+          fi
+
+      - name: Commit and Push to gh-pages
+        run: |
+          cp index.html /tmp/index.html
+          git fetch origin gh-pages 2>/dev/null || true
+          git checkout gh-pages 2>/dev/null || git checkout --orphan gh-pages
+          if [ -f /tmp/index.html ]; then
+            cp /tmp/index.html index.html
+          fi
+          touch .nojekyll
+          git config user.name "Deploy Bot"
+          git config user.email "deploy-bot@users.noreply.github.com"
+          git add index.html .nojekyll
+          git commit -m "deploy: $(date -u '+%Y-%m-%d %H:%M:%S UTC')" || echo "No changes to commit"
+          git push origin gh-pages --force
