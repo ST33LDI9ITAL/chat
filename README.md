@@ -90,6 +90,8 @@ Deployable directly to **GitHub Pages** with zero backend infrastructure.
 
 ## 🚀 Quickstart & Local Development
 
+### Option A — Run locally (fastest)
+
 1. **Clone or Download** the repository:
    ```bash
    git clone https://github.com/st33ldi9ital/chat.git
@@ -107,7 +109,25 @@ Deployable directly to **GitHub Pages** with zero backend infrastructure.
 
 3. Open `http://localhost:8080` in your browser.
 
+### Option B — Deploy to GitHub Pages (shareable, HTTPS)
+
+1. **Fork or push** this repo to your GitHub account.
+2. **Enable GitHub Pages** at **Settings > Pages**:
+   - Source: **Deploy from a branch**
+   - Branch: `gh-pages` / root
+3. **Add GitHub Actions secrets** (for voice TURN + GIF search):
+   - Settings > Secrets and variables > Actions
+   - `CF_TURN_ID` (Cloudflare TURN Key ID)
+   - `CF_TURN_TOKEN` (Cloudflare TURN API token)
+   - `GIPHY_API` (optional — GIPHY key for the GIF picker)
+4. **Push to `main`** — the GitHub Actions workflow (`deploy.yml`) automatically:
+   - Generates fresh Cloudflare TURN credentials (1-day TTL)
+   - Injects them into `index.html` (secrets never ship in the repo)
+   - Commits the processed file to `gh-pages` and force-pushes it
+5. Your app is live at `https://<your-username>.github.io/<repo>/` — share the link with friends.
+
 > **Note**: `window.crypto.subtle` requires a secure context (HTTPS or localhost). Use the GitHub Pages URL or a local server with HTTPS.
+> **Note**: Each deploy refreshes the 1-day Cloudflare TURN credentials — load the latest deploy within the TTL window (see Known Limitations).
 
 ---
 
@@ -125,17 +145,15 @@ Deployable directly to **GitHub Pages** with zero backend infrastructure.
 
 ---
 
-## 🌐 GitHub Pages Deployment
+## 🌐 GitHub Pages Deployment (how it works)
 
-Deployment is automated via a GitHub Actions workflow (`deploy.yml`) that:
+Pushing to `main` triggers an automatic deploy via `deploy.yml`:
 
 1. Checks out the code.
 2. Injects GIPHY + Cloudflare TURN credentials (generated fresh each deploy).
 3. Commits the processed `index.html` to the `gh-pages` branch and force-pushes it.
 
-**GitHub Pages must be configured to serve from the `gh-pages` branch** (Settings > Pages > Source > Deploy from a branch > `gh-pages` / root). Each push to `main` triggers an automatic deploy.
-
-Your app will be live at `https://st33ldi9ital.github.io/chat/`!
+**GitHub Pages must be configured to serve from the `gh-pages` branch** (Settings > Pages > Source > Deploy from a branch > `gh-pages` / root). See **Quickstart & Local Development → Option B** for the full setup steps.
 
 ---
 
