@@ -1109,12 +1109,10 @@
         personalRoomSlug: '',
         textChannels: [
           { id: 'general', name: 'general', unread: false, icon: '#' },
-          { id: 'lounge', name: 'lounge', unread: false, icon: '#' },
-          { id: 'media-share', name: 'media-share', unread: false, icon: '#' }
+          { id: 'media', name: 'media', unread: false, icon: '#' }
         ],
         voiceChannels: [
-          { id: 'General Voice', name: '🔊 General Voice', icon: '🔊' },
-          { id: 'Gaming Lounge', name: '🔊 Gaming Lounge', icon: '🔊' }
+          { id: 'General Voice', name: '🔊 General Voice', icon: '🔊' }
         ],
         _pendingIceCandidates: {}, // senderPubkey -> [RTCIceCandidate] (arrived before offer)
         activeChannel: 'general',
@@ -1449,12 +1447,10 @@
             // Reset to defaults (will be overridden by relay event if available)
             this.textChannels = [
               { id: 'general', name: 'general', unread: false },
-              { id: 'lounge', name: 'lounge', unread: false },
-              { id: 'media-share', name: 'media-share', unread: false }
+              { id: 'media', name: 'media', unread: false }
             ];
             this.voiceChannels = [
-              { id: 'General Voice', name: '🔊 General Voice' },
-              { id: 'Gaming Lounge', name: '🔊 Gaming Lounge' }
+              { id: 'General Voice', name: '🔊 General Voice' }
             ];
             this.channelConfigSource = 'default';
           }
