@@ -1072,6 +1072,12 @@
 
   <!-- APPLICATION LOGIC & CRYPTO ENGINE -->
   <script>
+    // Host-only reachability probe for same-LAN. A probe connection (empty iceServers,
+    // policy 'all') gathers only host candidates, so NO srflx/public-WAN IP is ever
+    // involved; a successful direct probe is observed reachability, not a self-report.
+    const LAN_PROBE_TIMEOUT_MS = 8000; // give up a probe after this long (host candidates only)
+    const LAN_PROBE_GRANT_MS = 60000;  // a successful probe grants same-LAN for this long
+
     function chatApp() {
       return {
         // App-level error banner (set when critical dependencies fail)
@@ -1140,8 +1146,9 @@
           peerConnections: {}, // pubkey -> RTCPeerConnection
           peerAudioElements: {}, // pubkey -> HTMLAudioElement
           relayName: 'Unknown', // actual TURN relay detected from selected candidate pair
-          publicIp: null, // own STUN-reflexive public IP (discovered async)
-          privateIp: null  // own private LAN IP (host candidate)
+          reachableDirect: {}, // pubkey -> { at } when a host-only probe connected directly (same-LAN evidence)
+          probeConnections: {}, // pubkey -> RTCPeerConnection (or 'pending') for the host-only probe
+          trustedPeers: {} // pubkey -> true (explicit trust: relax immediately without a probe)
         },
 
         // Direct Message State
@@ -2084,7 +2091,7 @@
           const subId = 'sub_' + relay.url.replace(/[^a-zA-Z0-9]/g, '_') + '_' + this.room.slug;
 
           const filter = {
-            kinds: [1, 20000, 25000, 30001],
+            kinds: [1, 20000, 25000, 25500, 30001],
             '#t': [this.room.slug],
             since: Math.floor(Date.now() / 1000) - 86400 * 7
           };
@@ -2139,6 +2146,32 @@
           });
         },
 
+        // Publish a per-peer (NIP-04) event to a specific pubkey on kind 25500.
+        // Used for voice ICE/SDP signaling and the same-LAN handshake. NIP-04 ECDH
+        // encryption means only the intended peer can read it; no other room member can.
+        // This is the privacy-critical channel: any srflx/public-WAN candidate that ever
+        // appears goes ONLY to the intended peer, never to the whole room.
+        async publishPerPeerSignal(pubkey, dataObj, kind = 25500) {
+          try {
+            const nip04 = window.NostrTools && window.NostrTools.nip04;
+            if (!nip04 || !pubkey) return;
+            const encrypted = await nip04.encrypt(this.user.sk, pubkey, JSON.stringify(dataObj));
+            const eventTemplate = {
+              kind,
+              created_at: Math.floor(Date.now() / 1000),
+              tags: [['t', this.room.slug], ['p', pubkey]],
+              content: encrypted
+            };
+            if (!window.NostrTools.finalizeEvent) return;
+            const signed = window.NostrTools.finalizeEvent(eventTemplate, this.hexToBytes(this.user.sk));
+            if (!window._chatOwnEvents) window._chatOwnEvents = new Set();
+            window._chatOwnEvents.add(signed.id);
+            if (window._chatOwnEvents.size > 1000) window._chatOwnEvents.clear();
+            const msgFrame = JSON.stringify(['EVENT', signed]);
+            this.relays.forEach(r => { if (r.ws && r.ws.readyState === WebSocket.OPEN) r.ws.send(msgFrame); });
+          } catch (e) { /* ignore per-peer signal errors; voice stays relay-only (fail-safe) */ }
+        },
+
         async handleRelayMessage(data) {
           try {
             // Handle binary WebSocket frames
@@ -2186,6 +2219,30 @@
                 return;
               }
 
+              // Per-peer channel (kind 25500): NIP-04-encrypted to a specific peer, decrypted
+              // BEFORE room-key decryption. Carries per-peer VOICE signaling (offer/answer/ice)
+              // and the host-only reachability probe (probe_offer/answer/ice). NIP-04 means only
+              // the intended peer can read; any candidate (incl. srflx/WAN if it ever appears)
+              // goes ONLY to that peer.
+              if (ev.kind === 25500 && pTag && pTag[1] === this.user.pk && ev.pubkey !== this.user.pk) {
+                this.dmProcessedEventIds.add(ev.id);
+                try {
+                  const nim = window.NostrTools && window.NostrTools.nip04;
+                  if (!nim) return;
+                  const decText = nim.decrypt ? nim.decrypt(this.user.sk, ev.pubkey, ev.content) : null;
+                  const decrypted = await Promise.resolve(decText);
+                  if (!decrypted) return;
+                  const pp = JSON.parse(decrypted);
+                  if (!pp || typeof pp.type !== 'string') return;
+                  if (pp.type === 'offer' || pp.type === 'answer' || pp.type === 'ice') {
+                    await this.onIncomingWebRTCSignal(ev, pp);
+                  } else if (pp.type === 'probe_offer' || pp.type === 'probe_answer' || pp.type === 'probe_ice') {
+                    await this.handleProbeSignal(ev, pp);
+                  }
+                } catch (e) { /* undecryptable/malformed per-peer signal ignored */ }
+                return;
+              }
+
               // Room config events (public, no room key needed)
               if (ev.kind === 30001) {
                 this.onIncomingChannelConfigEvent(ev);
@@ -2205,8 +2262,14 @@
                 // Presence Heartbeat
                 this.onIncomingPresence(ev, decrypted);
               } else if (ev.kind === 25000) {
-                // WebRTC Signal
-                this.onIncomingWebRTCSignal(ev, decrypted);
+                // File-transfer signaling only (ft_offer / ft_answer / ice). Room-key
+                // encrypted; file-transfer PCs are hardcoded relay-only, so no srflx/WAN
+                // leaks here. (Voice signaling now uses per-peer kind 25500, so a bare
+                // 'ice' on kind 25000 is unambiguous file-transfer candidate traffic.)
+                const pp = typeof decrypted === 'object' ? decrypted : (() => { try { return JSON.parse(decrypted); } catch { return null; } })();
+                if (pp && (pp.type === 'ft_offer' || pp.type === 'ft_answer' || pp.type === 'ice')) {
+                  this.onIncomingFileSignal(ev, pp);
+                }
               }
             }
           } catch (err) {}
@@ -3186,9 +3249,10 @@
             inVoice: this.voice.connected,
             channel: this.voice.channel,
             muted: this.voice.muted,
-            deafened: this.voice.deafened,
-            publicIp: this.voice.publicIp || null,
-            privateIp: this.voice.privateIp || null
+            deafened: this.voice.deafened
+            // NOTE: NO publicIp/privateIp here. Own IPs must never be broadcast in
+            // room-encrypted presence (room key is shared by all members) — they are
+            // exchanged only via per-peer NIP-04 LAN handshake (kind 25500).
           };
           try {
             const encrypted = await this.encryptPayload(payload);
@@ -3204,6 +3268,8 @@
           // Use event's created_at for lastSeen so old relay replays don't
           // make stale peers appear active (use current time as floor)
           const evTime = ev.created_at ? ev.created_at * 1000 : Date.now();
+          const wasInSameVoice = !!(this.peers[ev.pubkey]?.inVoice && this.peers[ev.pubkey]?.channel === this.voice.channel);
+          const nowInSameVoice = !!(this.voice.connected && payload.inVoice && payload.channel === this.voice.channel);
           this.peers[ev.pubkey] = {
             pubkey: ev.pubkey,
             name: payload.name || ('Peer_' + ev.pubkey.substring(0, 8)),
@@ -3214,19 +3280,25 @@
             channel: payload.channel || null,
             muted: !!payload.muted,
             deafened: !!payload.deafened,
-            publicIp: payload.publicIp || null,
-            privateIp: payload.privateIp || null,
+
+            // IPs are NOT stored from presence. Same-LAN is decided only by the host-only
+            // reachability probe (voice.reachableDirect[pubkey]), never from a self-report.
             isSpeaking: false,
             volume: this.peers[ev.pubkey]?.volume || 100
           };
           // If we're in the same voice channel, initiate WebRTC connection
-          if (this.voice.connected && payload.inVoice && payload.channel === this.voice.channel && ev.pubkey !== this.user.pk) {
+          if (nowInSameVoice && ev.pubkey !== this.user.pk) {
             // Deterministic initiator: lower pubkey creates offer
             if (this.user.pk < ev.pubkey && !this.voice.peerConnections[ev.pubkey]) {
               this.initiateWebRTCConnection(ev.pubkey);
-            } else if (this.voice.peerConnections[ev.pubkey]) {
-              this.upgradeConnectionIfSameLan(ev.pubkey);
             }
+            // Kick off a host-only reachability probe to this peer; only a peer that proves
+            // direct reachability is ever relaxed (evidence-based, privacy-safe). Fire-and-forget.
+            this.startHostProbe(ev.pubkey);
+          } else if (wasInSameVoice && !nowInSameVoice) {
+            // Peer left the voice channel — drop any probe / same-LAN state
+            this._closeProbe(ev.pubkey);
+            delete this.voice.reachableDirect[ev.pubkey];
           }
         },
 
@@ -3242,6 +3314,9 @@
                 this.voice.remoteAudioContexts[pk].close();
                 delete this.voice.remoteAudioContexts[pk];
               }
+              // Also drop any probe / same-LAN state for a pruned (gone) peer.
+              this._closeProbe(pk);
+              delete this.voice.reachableDirect[pk];
               delete this.peers[pk];
             }
           });
@@ -3286,8 +3361,10 @@
             // Setup local audio level monitoring
             this.setupLocalAudioAnalyser(this.voice.localStream);
 
-            // Discover own IPs for same-LAN detection; broadcast includes them
-            this.discoverLocalIps();
+            // Kick off host-only reachability probes to peers already in this voice channel.
+            // Same-LAN direct is decided by observed direct reachability (probe), not a
+            // self-attested IP string, so remote/untrusted peers can never force a relax.
+            this.getPeersInVoiceChannel(channelId).forEach(p => this.startHostProbe(p.pubkey));
 
             this.broadcastPresence();
 
@@ -3327,6 +3404,10 @@
             delete this.voice.peerConnections[pk];
           });
           this._pendingIceCandidates = {};
+          // Clear all probe / same-LAN state and own IPs on leave.
+          Object.keys(this.voice.probeConnections || {}).forEach(pk => this._closeProbe(pk));
+          this.voice.reachableDirect = {};
+          this.voice.probeConnections = {};
 
           // Broadcast departure BEFORE clearing state so peers see the signal
           this.voice.connected = false;
@@ -3365,12 +3446,29 @@
           const offer = await pc.createOffer();
           await pc.setLocalDescription(offer);
 
-          const payload = {
-            type: 'offer',
-            sdp: offer
-          };
-          const encrypted = await this.encryptPayload(payload);
-          await this.publishNostrEvent(25000, encrypted, targetPubkey);
+          const payload = { type: 'offer', sdp: offer };
+          await this.publishPerPeerSignal(targetPubkey, payload);
+        },
+
+        // Glare-safe, bounded ICE-restart driver used by the failed-handler. Only from a
+        // STABLE signaling state does createOffer({iceRestart:true}) succeed; from 'have-remote-offer'
+        // it throws (H1), and from 'have-local-offer' it would pile on a crossed offer (glare).
+        // If not stable, we back off and let the failed handler re-drive (bounded) once it settles.
+        async _driveIceRestart(pc, targetPubkey) {
+          try {
+            if (!pc) return;
+            pc._iceRestarting = true;
+            // Not stable yet -> give up this attempt; the failed handler will re-drive (bounded).
+            if (pc.signalingState !== 'stable') { pc._iceRestarting = false; return; }
+            const epoch = (pc._lanEpoch || 0) + 1;
+            pc._lanEpoch = epoch;
+            const offer = await pc.createOffer({ iceRestart: true });
+            await pc.setLocalDescription(offer);
+            await this.publishPerPeerSignal(targetPubkey, { type: 'offer', sdp: offer, epoch, lan_upgrade: !!pc._updatedForLan });
+            pc._iceRestarting = false;
+          } catch (e) {
+            if (pc) pc._iceRestarting = false;
+          }
         },
 
         createPeerConnection(targetPubkey) {
@@ -3382,32 +3480,29 @@
             iceTransportPolicy: sameLan ? 'all' : 'relay'
           });
           pc._iceCandidatesQueue = [];
+          // If we already know this peer is same-LAN at creation, mark it as done so we
+          // don't perform a needless ICE restart later (the policy is already 'all').
+          pc._updatedForLan = sameLan || false;
           this.voice.peerConnections[targetPubkey] = pc;
 
           pc.onicecandidate = async (e) => {
             if (e.candidate) {
-              const payload = { type: 'ice', candidate: e.candidate };
-              const encrypted = await this.encryptPayload(payload);
-              await this.publishNostrEvent(25000, encrypted, targetPubkey);
+              await this.publishPerPeerSignal(targetPubkey, { type: 'ice', candidate: e.candidate });
             }
           };
           pc.oniceconnectionstatechange = () => {
             if (pc.iceConnectionState === 'connected') {
               this.detectVoiceRelay();
             }
-            if (pc.iceConnectionState === 'failed' && !pc._iceRestarting) {
-              pc._iceRestarting = true;
-              setTimeout(async () => {
-                try {
-                  const offer = await pc.createOffer({ iceRestart: true });
-                  await pc.setLocalDescription(offer);
-                  const payload = { type: 'offer', sdp: offer };
-                  const encrypted = await this.encryptPayload(payload);
-                  await this.publishNostrEvent(25000, encrypted, targetPubkey);
-                  pc._iceRestarting = false;
-                } catch (e) {
-                  pc._iceRestarting = false;
-                }
+            if (pc.iceConnectionState === 'failed') {
+              // Glare-safe, bounded ICE recovery. Deferred so it can clear _iceRestarting
+              // and the failed handler can fire again cleanly.
+              const attempt = (pc._iceRestartAttempt || 0) + 1;
+              pc._iceRestartAttempt = attempt;
+              if (attempt > 3) { pc._iceRestarting = false; return; }
+              setTimeout(() => {
+                pc._iceRestarting = false;
+                this._driveIceRestart(pc, targetPubkey);
               }, 2000);
             }
           };
@@ -3440,28 +3535,108 @@
 
           const senderPubkey = ev.pubkey;
 
-          // Route file transfer signals to the file handler
-          if (payload.type === 'ft_offer' || payload.type === 'ft_answer') {
-            this.onIncomingFileSignal(ev, payload);
-            return;
-          }
+          // NOTE: this handler now receives only per-peer VOICE signals (offer/answer/ice)
+          // via kind 25500. File-transfer signals (ft_offer/ft_answer/ice) go directly to
+          // onIncomingFileSignal via kind 25000, so they never reach here.
 
           if (payload.type === 'offer') {
-            // Reuse existing PC for ICE restart if present
+            // Reuse existing PC for ICE restart if present. An offer on an EXISTING pair
+            // (ICE restart / same-LAN upgrade renegotiation) is always legitimate.
             let pc = this.voice.peerConnections[senderPubkey];
             if (!pc) {
+              // A NEW answering PC may only be created for a peer we are actually in a voice
+              // call with (same voice channel, both inVoice). Without this gate, any room
+              // member could send an unsolicited offer and attach our mic tracks, producing a
+              // hidden call / eavesdropping path.
+              const peer = this.peers[senderPubkey];
+              const sameChannelVoicePeer = peer && peer.inVoice && peer.channel === this.voice.channel
+                && this.voice.connected && this.voice.channel;
+              if (!sameChannelVoicePeer) {
+                // Not a peer we should be in a voice call with -> ignore (stay relay-only).
+                console.warn('[voice] ignoring unsolicited offer from non-voice-channel peer', senderPubkey.substring(0,8));
+                return;
+              }
               pc = this.createPeerConnection(senderPubkey);
               if (this.voice.localStream) {
                 this.voice.localStream.getTracks().forEach(track => pc.addTrack(track, this.voice.localStream));
               }
-            } else if (this.isSameLanTarget(senderPubkey) && !pc._updatedForLan) {
-              // Peer is same-LAN: relax this (previously relay-strict) answering PC to 'all'
-              // so we both send host candidates on this renegotiation.
-              pc._updatedForLan = true;
-              try { pc.setConfiguration({ iceTransportPolicy: 'all', iceServers: this.iceServers }); } catch (e) {}
             }
-            await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
-            
+
+            // ---- Glare / crash-consistency handling ----
+            // If we already have a local offer in flight for this pair (e.g. both sides
+            // independently ICE-restarted, or an upgrade offer crossed), resolve per
+            // RFC-3264: the deterministic initiator (lower pubkey) wins; the other side
+            // rolls back its pending local offer and answers ours.
+            if (pc.signalingState === 'have-local-offer') {
+              if (this.user.pk < senderPubkey) {
+                // We are the initiator. Normally we keep our offer and the peer rolls back
+                // and answers it (deterministic lower-pubkey wins). BUT if our ICE has
+                // already failed (e.g. relay outage mid-negotiation, H1 case), our own offer
+                // is unlikely to be answered and dropping the peer's would deadlock the pair.
+                // In that case roll back and answer the peer's offer instead.
+                if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
+                  console.log('[voice] glare: we are initiator but connection failed; answering peer offer');
+                  try {
+                    await pc.setLocalDescription({ type: 'rollback' });
+                  } catch (e2) {
+                    try { pc.close(); } catch (_) {}
+                    pc = this.createPeerConnection(senderPubkey);
+                    if (this.voice.localStream) {
+                      this.voice.localStream.getTracks().forEach(track => pc.addTrack(track, this.voice.localStream));
+                    }
+                  }
+                } else {
+                  // Healthy initiator: keep our offer, drop the crossed one; the peer will
+                  // roll back and answer ours (avoids glare deadlock).
+                  console.log('[voice] glare: we initiate for', senderPubkey.substring(0,8), 'dropping crossed offer');
+                  return;
+                }
+              }
+              // We are not the initiator -> roll back our pending local offer, then
+              // apply the peer's offer as the answerer (glare won).
+              try {
+                await pc.setLocalDescription({ type: 'rollback' });
+              } catch (e) {
+                console.warn('[voice] rollback failed, closing PC for', senderPubkey.substring(0,8), e);
+                try { pc.close(); } catch (_) {}
+                pc = this.createPeerConnection(senderPubkey);
+                if (this.voice.localStream) {
+                  this.voice.localStream.getTracks().forEach(track => pc.addTrack(track, this.voice.localStream));
+                }
+              }
+            } else if (pc.signalingState === 'closed' || pc.signalingState === 'failed') {
+              // Dead PC from a prior failure; rebuild fresh to accept the offer.
+              try { pc.close(); } catch (_) {}
+              pc = this.createPeerConnection(senderPubkey);
+              if (this.voice.localStream) {
+                this.voice.localStream.getTracks().forEach(track => pc.addTrack(track, this.voice.localStream));
+              }
+            }
+
+            // Same-LAN relaxation of the answering PC is gated ONLY on local, probe-verified
+            // evidence (this.isSameLanTarget), NEVER on the peer-supplied flag (payload.lan_upgrade).
+            // The lan_upgrade flag is forgeable (any room member can set it), so trusting it would
+            // let a remote attacker force 'all' and read our srflx/WAN IP. Because both sides probe
+            // each other on presence, isSameLanTarget is already true on the answerer whenever a
+            // legit upgrade offer arrives; if our probe is still in flight, staying relay-only for
+            // one round is safe and self-heals when our own probe succeeds (upgradeConnectionIfSameLan).
+            if (this.isSameLanTarget(senderPubkey) && !pc._updatedForLan) {
+              pc._updatedForLan = true;
+              try {
+                pc.setConfiguration({ iceTransportPolicy: 'all', iceServers: this.iceServers });
+              } catch (e) { /* leave relay-only on error (fail-safe) */ }
+            }
+
+            try {
+              await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+            } catch (e) {
+              // Could not apply the offer (e.g. malformed ICE in an unrelated transition).
+              // Do NOT silently stay stuck: log and stop, the ICE-restart-on-failed handler
+              // or a fresh presence will retry. We do not swallow here for the glare case.
+              console.warn('[voice] setRemoteDescription(offer) failed', e);
+              return;
+            }
+
             // Process queued candidates (from this PC or pending ones)
             while (pc._iceCandidatesQueue && pc._iceCandidatesQueue.length > 0) {
               const cand = pc._iceCandidatesQueue.shift();
@@ -3478,9 +3653,8 @@
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
 
-            const replyPayload = { type: 'answer', sdp: answer };
-            const encrypted = await this.encryptPayload(replyPayload);
-            await this.publishNostrEvent(25000, encrypted, senderPubkey);
+            await this.publishPerPeerSignal(senderPubkey, { type: 'answer', sdp: answer, epoch: payload.epoch || 0 });
+
 
           } else if (payload.type === 'answer') {
             const pc = this.voice.peerConnections[senderPubkey];
@@ -3760,26 +3934,37 @@
 
         async detectVoiceRelay() {
           // Inspect the active PC's candidate stats to determine if media is
-          // relayed (TURN) or direct (same-LAN path)
+          // relayed (TURN) or direct (same-LAN path).
           try {
             for (const [pk, pc] of Object.entries(this.voice.peerConnections)) {
               if (!pc || pc.iceConnectionState !== 'connected') continue;
               const stats = await pc.getStats();
+              const candidates = {}; // id -> candidateType
+              stats.forEach(r => {
+                if (r.type === 'local-candidate' || r.type === 'remote-candidate') {
+                  candidates[r.id] = r.candidateType;
+                }
+              });
               let isRelay = false;
               let relayAddr = null;
               let isDirect = false;
               stats.forEach(report => {
+                // Only the selected, succeeded candidate pair matters. Determine its
+                // path from the ACTUAL candidate types (both ends), not from
+                // nomination (fixes the old bug that mislabeled any nominated pair relay).
                 if (report.type === 'candidate-pair' && report.state === 'succeeded' && report.selected) {
-                  isRelay = report.nominated ? !!report.localCandidateId : isRelay;
-                }
-                if (report.type === 'local-candidate') {
-                  if (report.candidateType === 'relay') {
+                  const localType = candidates[report.localCandidateId];
+                  const remoteType = candidates[report.remoteCandidateId];
+                  if (localType === 'relay' || remoteType === 'relay') {
                     isRelay = true;
-                    relayAddr = report.ip + ':' + (report.port || '');
                   }
-                  if (report.candidateType === 'host' || report.candidateType === 'srflx') {
+                  if (localType === 'host' || localType === 'srflx' || remoteType === 'host' || remoteType === 'srflx') {
                     isDirect = true;
                   }
+                }
+                // relayAddr is captured below from the local relay-candidate report.
+                if (report.type === 'local-candidate' && report.candidateType === 'relay') {
+                  relayAddr = report.ip + ':' + (report.port || '');
                 }
               });
               this.voice.relayName = isRelay && relayAddr ? this.nameRelay(relayAddr) : (isDirect ? 'Direct (LAN)' : this.voice.relayName);
@@ -3801,60 +3986,11 @@
           return 'TURN Relay';
         },
 
-        // Discover own public (STUN-reflexive) and private (host) IPs using a
-        // throwaway RTCPeerConnection (not stored in peerConnections).
-        // Used for same-LAN detection so voice can bypass relay for trusted local peers.
-        discoverLocalIps() {
-          if (this.voice.publicIp && this.voice.privateIp) return Promise.resolve(); // already discovered
-          return new Promise((resolve) => {
-            try {
-              const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
-              let settled = false;
-              const finish = () => { if (!settled) { settled = true; try { pc.close(); } catch(e){} resolve(); } };
-              const timeout = setTimeout(() => { this.voice.publicIp = this.voice.publicIp || 'unknown'; this.voice.privateIp = this.voice.privateIp || 'unknown'; finish(); }, 4000);
-              pc.createDataChannel('ipd');
-              pc.onicecandidate = (e) => {
-                if (e.candidate) {
-                  if (e.candidate.type === 'srflx') this.voice.publicIp = this.voice.publicIp || e.candidate.address;
-                  if (e.candidate.type === 'host') this.voice.privateIp = this.voice.privateIp || e.candidate.address;
-                } else {
-                  clearTimeout(timeout);
-                  this.voice.publicIp = this.voice.publicIp || 'unknown';
-                  this.voice.privateIp = this.voice.privateIp || 'unknown';
-                  finish();
-                }
-              };
-              pc.setLocalDescription(pc.createOffer());
-            } catch (e) {
-              this.voice.publicIp = 'unknown';
-              this.voice.privateIp = 'unknown';
-              resolve();
-            }
-          });
-        },
-
-        // Strict same-LAN check: same public IP AND same private subnet ("/16").
-        // Only relax relay to direct for genuinely same-network trusted peers.
-        // Remote peers (different public IP) or CGNAT (same public IP, different private subnet)
-        // are never relaxed — IP-hiding from remote peers is preserved.
-        isSameLanTarget(pubkey) {
-          const mePub = this.voice.publicIp;
-          const mePriv = this.voice.privateIp;
-          const them = this.peers[pubkey];
-          if (!them || !them.publicIp || !them.privateIp) return false;
-          if (mePub === 'unknown' || mePriv === 'unknown' || them.publicIp === 'unknown' || them.privateIp === 'unknown') return false;
-          if (mePub !== them.publicIp) return false; // different public IP -> remote -> relay
-          // Same public IP: additionally require same /16 private subnet to avoid CGNAT false positives
-          const myOctets = mePriv.split('.');
-          const theirOctets = them.privateIp.split('.');
-          return myOctets.length === 4 && theirOctets.length === 4 &&
-                 myOctets[0] === theirOctets[0] && myOctets[1] === theirOctets[1];
-        },
-
-        // If a peer is confirmed same-LAN AFTER a relay-only PC was already
-        // created (IPs arrived late via presence heartbeat), relax that PC
-        // from relay-only to 'all' via setConfiguration + an ICE restart.
-        // WPT guarantees relay->all ICE restart succeeds.
+        // If a peer is confirmed same-LAN AFTER a relay-only PC was already created
+        // (host-only probe succeeded -> observed direct reachability), relax that PC
+        // from relay-only to 'all' via setConfiguration + an ICE restart, with RFC-3264-style
+        // glare resolution (deterministic lower-pubkey initiator wins). Per-peer signaling
+        // means any srflx gathered goes ONLY to this confirmed-same-LAN peer, never the room.
         upgradeConnectionIfSameLan(pubkey) {
           const pc = this.voice.peerConnections[pubkey];
           if (!pc || pc._updatedForLan) return;
@@ -3864,15 +4000,234 @@
             pc.setConfiguration({ iceTransportPolicy: 'all', iceServers: this.iceServers });
             // Relax does not take effect until the next gathering phase, so we must
             // renegotiate: create a fresh offer (iceRestart) and send it to the peer.
-            // WPT guarantees relay->all ICE restart succeeds; both sides renegotiate.
+            // Glare: the deterministic initial offer flow (existing initiateWebRTCConnection
+            // path) is the one that carries the upgrade; the answerer relaxes in the offer
+            // handler. We still guard with _updatedForLan to avoid duplicate offers.
+            const epoch = (pc._lanEpoch || 0) + 1;
+            pc._lanEpoch = epoch;
             pc.createOffer({ iceRestart: true }).then(o => {
               return pc.setLocalDescription(o).then(() => o);
             }).then(o => {
-              const payload = { type: 'offer', sdp: o };
-              return this.encryptPayload(payload).then(enc =>
-                this.publishNostrEvent(25000, enc, pubkey));
+              return this.publishPerPeerSignal(pubkey, { type: 'offer', sdp: o, epoch, lan_upgrade: true });
             }).catch(() => {});
           } catch (e) {}
+        },
+
+        // ---- Host-only reachability probe (privacy-safe same-LAN detection) ----
+        //
+        // Same-LAN is decided by OBSERVED DIRECT REACHABILITY, never by a self-attested
+        // string. We probe the peer with a throwaway RTCPeerConnection using
+        //   { iceServers: [], iceTransportPolicy: 'all' }.
+        // With an empty iceServers (no STUN, no TURN), the browser gathers ONLY host
+        // candidates — NO srflx, so the public/WAN IP is never involved and never leaks.
+        // If the probe's host candidates connect directly, the peer is genuinely on our LAN.
+        // A remote/untrusted peer's host IPs are unroutable to us, so the probe fails and we
+        // stay relay-only forever. No forgeable /16 self-reports.
+        //
+        // Probe signaling rides the same per-peer NIP-04 kind 25500 channel
+        // (payload types probe_offer / probe_answer / probe_ice).
+
+
+        // True if a host-only probe to this pubkey connected directly (observed reachability).
+        isSameLanTarget(pubkey) {
+          // Trust accelerator: explicitly trusted peers (operator's own devices / known
+          // contacts) are relaxed immediately without waiting for a probe.
+          if (this.voice.trustedPeers && this.voice.trustedPeers[pubkey]) return true;
+          // Otherwise: only a peer that passed the host-only reachability probe may be
+          // relaxed (observed direct reachability, not a self-report).
+          const e = this.voice.reachableDirect && this.voice.reachableDirect[pubkey];
+          if (!e) return false;
+          if (Date.now() - e.at > LAN_PROBE_GRANT_MS) return false;
+          return true;
+        },
+
+        // Kick off a host-only reachability probe to a voice peer (deterministic initiator).
+        // Safety: no STUN/TURN => no srflx/WAN gathered. Result only ever relaxes a peer that
+        // is provably directly reachable.
+        startHostProbe(pubkey) {
+          try {
+            if (this.voice.probeConnections[pubkey]) return; // already probing
+            // Skip a fresh probe if a recent successful one is still a valid grant (avoids
+            // keeping throwaway PCs for every same-channel peer on every 10s heartbeat).
+            const grant = this.voice.reachableDirect && this.voice.reachableDirect[pubkey];
+            if (grant && Date.now() - grant.at < LAN_PROBE_GRANT_MS - 3000) return;
+            this.voice.probeConnections[pubkey] = 'pending';
+            const pc = new RTCPeerConnection({ iceServers: [], iceTransportPolicy: 'all' });
+            this.voice.probeConnections[pubkey] = pc;
+            pc._probePeer = pubkey;
+            pc._probeQueue = [];
+            pc._probeOwnAddrs = new Set(); // our own gathered host addresses (anti self-reflection)
+            pc.createDataChannel('probe');
+            // Time out the probe so a stale/failed probe can never block or leak.
+            pc._probeTimer = setTimeout(() => this._closeProbe(pubkey), LAN_PROBE_TIMEOUT_MS);
+            pc.onicecandidate = (e) => {
+              if (e.candidate) {
+                const addr = String(e.candidate.address || '');
+                // Record our own local host address so we can reject a self-referential remote
+                // candidate (an attacker reflecting our own IP back) — the only residual vector
+                // to a false same-LAN proof.
+                if (e.candidate.type === 'host') pc._probeOwnAddrs.add(addr.toLowerCase());
+                // Only send a PRIVATE/LOCAL host candidate to the peer (never a global-scope
+                // IPv6 or public address), so probing can never disclose a public address.
+                if (this._probeCandidateAllowed(addr)) {
+                  this.publishPerPeerSignal(pubkey, { type: 'probe_ice', candidate: e.candidate });
+                }
+              }
+            };
+            pc.oniceconnectionstatechange = () => {
+              if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+                this.voice.reachableDirect[pubkey] = { at: Date.now() };
+                this._closeProbe(pubkey, true); // keep the reachableDirect grant
+                // Actually confirm same-LAN: relax the real media PC (per-peer signaling keeps
+                // any srflx to THIS confirmed-same-LAN peer only).
+                this.upgradeConnectionIfSameLan(pubkey);
+              } else if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'closed') {
+                this._closeProbe(pubkey);
+              }
+            };
+            // Deterministic initiator offers.
+            if (this.user.pk < pubkey) {
+              pc.createOffer().then(o => pc.setLocalDescription(o)).then(o =>
+                this.publishPerPeerSignal(pubkey, { type: 'probe_offer', sdp: o })
+              ).catch(() => this._closeProbe(pubkey));
+            }
+          } catch (e) { /* probe failure is fail-safe: stays relay-only */ }
+        },
+
+        _closeProbe(pubkey, keepGrant = false) {
+          const pc = this.voice.probeConnections[pubkey];
+          if (pc && typeof pc !== 'string') {
+            if (pc._probeTimer) clearTimeout(pc._probeTimer);
+            try { pc.close(); } catch (e) {}
+          }
+          if (!keepGrant) delete this.voice.reachableDirect[pubkey];
+          delete this.voice.probeConnections[pubkey];
+        },
+
+        // Is an address safe for the host-only probe to CONTACT (no WAN leak)? We may only
+        // reach private/local addresses (RFC1918, link-local, or mDNS), never a public endpoint,
+        // because an outbound ICE connectivity check to a public address would reveal our WAN IP.
+        _probeCandidateAllowed(addr) {
+          if (!addr) return false;
+          const a = String(addr).toLowerCase();
+          // mDNS host candidates (e.g. <uuid>.local) resolve locally only -> safe to contact.
+          if (a.endsWith('.local')) return true;
+          // Link-local IPv6 (fe80::/10): local only -> safe.
+          if (a.includes(':')) return a.startsWith('fe80') || a.startsWith('[fe80');
+          // Private IPv4 (RFC1918): local only -> safe. (We accept private ranges only; public
+          // or invalid values -> false.)
+          if (!/^(?:\d{1,3}\.){3}\d{1,3}$/.test(a)) return false;
+          const o = a.split('.').map(Number);
+          if (o.some(n => n > 255)) return false;
+          return o[0] === 10 || (o[0] === 192 && o[1] === 168) || (o[0] === 172 && o[1] >= 16 && o[1] <= 31);
+        },
+
+        // Reject a remote candidate whose address is one of OUR OWN gathered host addresses
+        // (anti self-reflection). An attacker reflecting our own probe IP back at us could
+        // otherwise cause the probe to self-validate and falsely set reachableDirect.
+        _probeAddrIsOwn(pc, addr) {
+          if (!addr) return true; // empty/unparseable -> treat as own (reject): fail-safe
+          return !!(pc._probeOwnAddrs && pc._probeOwnAddrs.has(String(addr).toLowerCase()));
+        },
+
+        // Extract the connection address from a WebRTC candidate string. The a=candidate: line is:
+        //   candidate:foundation component protocol priority <ip> <port> typ <type> ...
+        // so the IP is the 5th space-delimited token (index 4). Returns '' on parse failure.
+        _candidateAddress(candStr) {
+          if (!candStr || typeof candStr !== 'string') return '';
+          const line = candStr.trim().replace(/^a=candidate:/, 'candidate:');
+          if (!line.startsWith('candidate:')) return '';
+          const parts = line.split(' ');
+          // candidate:foundation(0=whole) component(1) protocol(2) priority(3) ip(4)
+          return parts.length >= 5 ? parts[4] : '';
+        },
+
+        // Sanitize a remote SDP for the probe: keep only private/LAN candidates so the probe can
+        // never issue an outbound check to a public endpoint (which would reveal our WAN IP).
+        // Returns null (reject the whole SDP) for anything non-parseable, so no public candidate
+        // can slip through via a non-string payload or exotic line endings.
+        _sanitizeProbeSdp(sdp, pc) {
+          if (!sdp || typeof sdp !== 'string') return null;
+          const lines = sdp.split(/\r\n|\r|\n/);
+          const out = [];
+          for (const line of lines) {
+            const candMatch = /^a=candidate:(.*)$/.exec(line.trim());
+            if (candMatch) {
+              const ip = this._candidateAddress('candidate:' + candMatch[1]);
+              // drop non-private AND self-reflected (our own address reflected back) candidates
+              if (!this._probeCandidateAllowed(ip)) continue;
+              if (pc && this._probeAddrIsOwn(pc, ip)) continue;
+              out.push(line); // keep private/lan candidate not belonging to us
+            } else {
+              out.push(line); // non-candidate lines pass through (e.g. m=, a=setup, c=)
+            }
+          }
+          return out.join('\r\n');
+        },
+
+        // Handle a probe signal from a peer (arrives per-peer NIP-04, payload already decrypted).
+        async handleProbeSignal(ev, payload) {
+          const pk = ev.pubkey;
+          if (pk === this.user.pk) return;
+          // Only engage a probe for a peer we are actually in the same voice channel with.
+          // Without this, a remote member not in our channel could trigger probe PCs and
+          // receive our host candidates. (Defense-in-depth: we already only relax on a probe
+          // we ran ourselves, per isSameLanTarget.)
+          const peer = this.peers[pk];
+          if (!(peer && peer.inVoice && peer.channel === this.voice.channel && this.voice.connected)) {
+            return;
+          }
+          // Always allow the peer to trigger our probe even if we did not initiate.
+          if (!this.voice.probeConnections[pk] || this.voice.probeConnections[pk] === 'pending') {
+            this.startHostProbe(pk);
+          }
+          const pc = this.voice.probeConnections[pk];
+          if (!pc || typeof pc === 'string') return;
+          try {
+            if (payload.type === 'probe_offer' || payload.type === 'probe_answer') {
+              if (payload.type === 'probe_offer' && pc.signalingState === 'have-local-offer' && this.user.pk < pk) {
+                // Glare: we initiated; ignore the crossed offer's SDP (we answer our own).
+                return;
+              }
+              // Strip any non-private/lan candidates from the remote SDP so the probe only
+              // ever contacts local addresses (prevents outbound WAN-IP disclosure).
+              const safeSdp = this._sanitizeProbeSdp(payload.sdp, pc);
+              if (!safeSdp) return;
+              await pc.setRemoteDescription(new RTCSessionDescription(safeSdp));
+              // flush queued candidates
+              while (pc._probeQueue && pc._probeQueue.length) {
+                const c = pc._probeQueue.shift();
+                // c is a parsed RTCIceCandidate: .address is the connection address
+                // (fall back to parsing from the candidate string).
+                const addr = c && c.address ? String(c.address) : (c ? this._candidateAddress(String(c.candidate||'')) : '');
+                if (this._probeCandidateAllowed(addr) && !this._probeAddrIsOwn(pc, addr)) {
+                  await pc.addIceCandidate(c).catch(()=>{});
+                }
+              }
+              if (payload.type === 'probe_offer') {
+                const ans = await pc.createAnswer();
+                await pc.setLocalDescription(ans);
+                await this.publishPerPeerSignal(pk, { type: 'probe_answer', sdp: ans });
+              }
+            } else if (payload.type === 'probe_ice') {
+              if (!payload.candidate) return;
+              // Only ever contact an address that is private/local (RFC1918/mDNS/fe80).
+              // Parse the address from the CANDIDATE STRING itself, never from the caller's
+              // JSON (the browser's toJSON does NOT include .address, so a forged JSON address
+              // field is attacker-controlled and must not be trusted).
+              const candStr = typeof payload.candidate === 'string' ? payload.candidate : String(payload.candidate.candidate || '');
+              const candAddr = this._candidateAddress(candStr);
+              if (!this._probeCandidateAllowed(candAddr)) return;   // must be private/local
+              if (this._probeAddrIsOwn(pc, candAddr)) return;       // not our own reflected addr
+              const cand = new RTCIceCandidate(payload.candidate);
+              if (pc.remoteDescription && pc.remoteDescription.type) {
+                await pc.addIceCandidate(cand).catch(()=>{});
+              } else {
+                if (!pc._probeQueue) pc._probeQueue = [];
+                pc._probeQueue.push(cand);
+              }
+            }
+          } catch (e) { /* probe errors are fail-safe -> relay-only */ }
         },
 
         setupLocalAudioAnalyser(stream) {
