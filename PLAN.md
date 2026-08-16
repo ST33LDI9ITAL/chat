@@ -32,6 +32,7 @@ A P2P, client-only voice/file app where each client relays communications throug
 - [ ] **Intended design: client-as-server.** The room lives while people are in it; an empty room resets. No durable server state (see Section 5 for the security rails this requires).
 - [ ] **Opt-in stable identity** (portable crypto seed/key, exportable, verifiable, changeable) so friends can always find an operator's rooms, and owners can re-lock rooms after a reset or from a new device (see Section 5).
 - [ ] Layer in known tradeoff: without a relay, ~20-25% of remote connections (mobile/enterprise CGNAT) may fail — operators fix by enabling BYO-TURN.
+- [ ] **Sidequest future: Cloudflare MOQ for video/screen-share broadcast** in large rooms (see Section 8) — after the BYO-TURN core is done. P2P WebRTC mesh remains the current fallback for video/screen share.
 
 ---
 
@@ -253,7 +254,38 @@ Self-hostable, free, and open-source TURN servers (all support REST/ephemeral au
 
 ---
 
-## 8. Open Questions / Decisions Needed
+## 8. Cloudflare MOQ for Video & Screen Share (research, Aug 2026)
+
+### What MOQ is
+Media over QUIC (MoQ) is a new IETF pub/sub transport for live media (draft-14/draft-16, draft-18 in progress). It runs on QUIC / WebTransport (HTTP/3), organizes streams as tracks → groups → objects, and relays fan out one publisher to many subscribers without inspecting content. The practical effect: low-latency broadcast at CDN scale without running an SFU/encoder fleet.
+
+### Cloudflare's MoQ offering (relevant, free in beta)
+- **Global relay network**: every Cloudflare server in 330+ cities is a MoQ relay. No servers to deploy/size/load-balance.
+- **Provisioning API / dashboard** (Media > Realtime > MoQ Relay): create an **isolated relay scope** + issue **tokens** scoped to `publish` / `subscribe` / both, with expiry + per-token revocation. Each relay is isolated (your namespaces/tracks/objects don't mix with others').
+- **Browser path**: MoQ over WebTransport is accessible from web browsers (moq-rs, and browser libs). **Caveat:** Safari's WebTransport support has been incomplete; 2026 Safari shipped WebTransport (Baseline), but the Cloudflare docs still note "Safari does not yet have fully functional WebTransport support" — verify before relying on Safari.
+- **Cost model**: free during beta at any scale. Token-per-scope auth means a viewer's subscribe-only token can't hijack a publisher's tracks.
+
+### Why this fits the app
+- **Video / screen share is today a P2P mesh (WebRTC), which doesn't scale** to many viewers; MoQ gives one publisher → N subscribers through Cloudflare's edge with low latency.
+- **Same Cloudflare-only ethos + "client is the server"**: a room operator provisions an isolated relay and hands out subscribe tokens; publishers use a publish token. No new infrastructure, aligns with the BYO model.
+- **Privacy-preserving**: relays never inspect media; end-to-end encryption is unaffected (relays forward opaque objects).
+- **Media is already WebRTC P2P; MoQ would be an *optional* broadcast path** for screen-share/large-viewer rooms, not a replacement for P2P voice.
+
+### Proposed design (for when we build it)
+- Operator provisions an isolated MoQ relay via the Cloudflare API (same account/CI as TURN creds) + two token types (publish, subscribe).
+- Room settings reference the operator's relay endpoint; clients connect over WebTransport to the Anycast endpoint with their role-scoped token.
+- Screen-share/video broadcast: publisher publishes tracks under a room-scoped namespace; viewers subscribe with subscribe-only tokens.
+- Tokens can be short-lived/mintable from the same owner Worker pattern (reuse the relay-agnostic credential-provider principle).
+
+### Tradeoffs / open questions
+- **Browser support gap** (Safari WebTransport) — must gate feature or fall back to WebRTC mesh for affected browsers.
+- MoQ is still IETF draft (API/protocol may change); Cloudflare is beta/free now but not yet a stable commercial contract.
+- Does this live in the single-file model cleanly, or is it a separate page/feature flag?
+- **Recommended: treat as a sidequest feature** (video/screen-share broadcast for large rooms), not core voice. Add to goals when the BYO-TURN core is done.
+
+---
+
+## 9. Open Questions / Decisions Needed
 
 - [ ] Finalize the onboarding script (Wrangler-based) and the Worker template to vendor into this repo.
 - [ ] Confirm whether to auto-create the Cloudflare TURN Key via API/CLI in the script, or require the owner create it in the dashboard once.
@@ -265,7 +297,7 @@ Self-hostable, free, and open-source TURN servers (all support REST/ephemeral au
 
 ---
 
-## 9. Existing Implementation Notes
+## 10. Existing Implementation Notes
 
 - Same-LAN adaptive voice relay already implemented (`iceTransportPolicy: 'all'` for trusted same-subnet peers; `'relay'` otherwise). Keep this under the per-room TURN model.
 - Current app uses a global Cloudflare TURN with deploy-time short-lived credential injection. Per-room model replaces/reduces reliance on that single app-level key.
@@ -273,7 +305,8 @@ Self-hostable, free, and open-source TURN servers (all support REST/ephemeral au
 
 ---
 
-## 10. Related / Future (beyond this app)
+## 11. Related / Future (beyond this app)
 
 - **MMO voice:** run a central TURN/SFU (Discord model) since the game server is owned/controlled anyway; central TURN + analytics-backed enforcement is the right long-term play there, not per-user-room TURN.
 - **Self-hosted coturn** at scale for per-user quotas + full logs (only if Cloudflare-only constraint is relaxed).
+- **Cloudflare MOQ for video/screen-share broadcast** (see Section 8) — the natural future path for large-viewer rooms; P2P WebRTC mesh is the current fallback.
